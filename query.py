@@ -11,10 +11,10 @@ with open(args.plan) as f:
     query = f.read()
 
 embeddings = AzureOpenAIEmbeddings(
-    azure_endpoint=os.getenv("AZURE_API_BASE"),
+    azure_endpoint=os.getenv("AZURE_API_BASE"),  # ✅ From environment
     api_key=os.getenv("AZURE_API_KEY"),
-    model=os.getenv("DEPLOYMENT_NAME"),  # ✅ This is your Azure deployment name
-    api_version=os.getenv("AZURE_API_VERSION"),
+    model="text-embedding-ada-002",              # ✅ Hardcoded for testing
+    api_version="2023-05-15",                    # ✅ Hardcoded for testing
     chunk_size=512
 )
 
