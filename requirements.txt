@@ -1,0 +1,5 @@
+langchain==0.1.16
+openai==1.14.3
+chromadb==0.4.22
+tiktoken==0.5.2
+jq==1.6
