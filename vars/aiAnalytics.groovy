@@ -10,10 +10,12 @@ def call(
     String apiVersion
 ) {
     sh """
+        echo "📄 Escaping input files for payload"
         PLAN_FILE_CONTENT=\$(jq -Rs . < ${tfPlanJson})
         GUARDRAILS_CONTENT=\$(jq -Rs . < ${guardrailsPath})
         SAMPLE_HTML=\$(jq -Rs . < ${htmlTemplatePath})
 
+        echo "🧠 Constructing payload for Azure OpenAI"
         cat <<EOF > ${payloadPath}
 {
   "messages": [
@@ -33,11 +35,18 @@ def call(
 }
 EOF
 
+        echo "📡 Sending payload to Azure OpenAI"
+        RESPONSE_FILE=${outputHtmlPath}.raw
         curl -s -X POST "${azureApiBase}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}" \\
              -H "Content-Type: application/json" \\
              -H "api-key: ${azureApiKey}" \\
-             -d @${payloadPath} > ${outputHtmlPath}
+             -d @${payloadPath} > \$RESPONSE_FILE
 
-        jq -r '.choices[0].message.content' ${outputHtmlPath} > ${outputHtmlPath}
+        echo "📥 Parsing response and writing output"
+        if jq -e '.choices[0].message.content' \$RESPONSE_FILE > /dev/null; then
+            jq -r '.choices[0].message.content' \$RESPONSE_FILE > ${outputHtmlPath}
+        else
+            echo "<html><body><h2>⚠️ AI response was empty or malformed</h2><p>Please check payload formatting and Azure OpenAI status.</p></body></html>" > ${outputHtmlPath}
+        fi
     """
 }
