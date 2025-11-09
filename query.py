@@ -14,8 +14,9 @@ embeddings = AzureOpenAIEmbeddings(
     azure_endpoint=os.getenv("AZURE_API_BASE"),
     api_key=os.getenv("AZURE_API_KEY"),
     deployment=os.getenv("DEPLOYMENT_NAME"),
-    model="text-embedding-ada-002",  # or your actual model name
-    api_version=os.getenv("AZURE_API_VERSION")
+    model="text-embedding-ada-002",
+    api_version=os.getenv("AZURE_API_VERSION"),
+    chunk_size=512  # or 2048, depending on your model limits
 )
 
 db = Chroma(collection_name=args.namespace, persist_directory="./chroma", embedding_function=embeddings)
