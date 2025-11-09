@@ -13,10 +13,10 @@ args = parser.parse_args()
 embeddings = AzureOpenAIEmbeddings(
     azure_endpoint=os.getenv("AZURE_API_BASE"),
     api_key=os.getenv("AZURE_API_KEY"),
-    deployment_name=os.getenv("DEPLOYMENT_NAME"),
-    model="text-embedding-ada-002",  # Replace with your actual model name if different
+    model="text-embedding-ada-002",
     api_version=os.getenv("AZURE_API_VERSION"),
-    chunk_size=512
+    model_kwargs={"deployment_name": os.getenv("DEPLOYMENT_NAME")},
+    chunk_size=2042
 )
 
 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
