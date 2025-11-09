@@ -1,3 +1,6 @@
+# Guardrails Version: v1.0 — Do not modify without version bump
+# Format: [Rule ID], Resource Type, Rule, Severity, Compliance Check
+
 # ============================================
 # EC2 Instance Guardrails
 # ============================================
