@@ -1,6 +1,6 @@
 import os, argparse
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_community.embeddings import AzureOpenAIEmbeddings
 from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
@@ -10,8 +10,14 @@ parser.add_argument("--guardrails")
 parser.add_argument("--namespace")
 args = parser.parse_args()
 
-openai_key = os.getenv("OPENAI_API_KEY")
-embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
+embeddings = AzureOpenAIEmbeddings(
+    azure_endpoint=os.getenv("AZURE_API_BASE"),
+    api_key=os.getenv("AZURE_API_KEY"),
+    deployment=os.getenv("DEPLOYMENT_NAME"),
+    model="text-embedding-ada-002",  # or your actual model name
+    api_version=os.getenv("AZURE_API_VERSION")
+)
+
 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 
 docs = []
