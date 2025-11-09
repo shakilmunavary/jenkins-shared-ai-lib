@@ -1,7 +1,7 @@
 import os, argparse
-from langchain.vectorstores import Chroma
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.document_loaders import TextLoader
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain_community.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 parser = argparse.ArgumentParser()
@@ -10,7 +10,8 @@ parser.add_argument("--guardrails")
 parser.add_argument("--namespace")
 args = parser.parse_args()
 
-embeddings = OpenAIEmbeddings()
+openai_key = os.getenv("OPENAI_API_KEY")
+embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 
 docs = []
