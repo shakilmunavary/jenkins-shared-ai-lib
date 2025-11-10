@@ -1,37 +1,72 @@
-import os
-import argparse
-from langchain.vectorstores import Chroma
-from langchain.embeddings import AzureOpenAIEmbeddings
-from langchain.document_loaders import TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+def call(Map config = [:]) {
+    def workdir = config.workdir
+    def sharedLibDir = config.sharedLibDir
+    def repoName = config.repoName
+    def buildNumber = config.buildNumber
+    def namespace = "${repoName}-${buildNumber}"
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--code_dir")
-parser.add_argument("--guardrails")
-parser.add_argument("--namespace")
-args = parser.parse_args()
+    stage("AI Analytics") {
+        withEnv(["VENV_PATH=venv"]) {
 
-embeddings = AzureOpenAIEmbeddings(
-    azure_endpoint=os.getenv("AZURE_API_BASE"),
-    api_key=os.getenv("AZURE_API_KEY"),
-    model="text-embedding-ada-002",
-    api_version="2023-05-15",
-    chunk_size=512
-)
+            sh """
+                echo '🔥 Cleaning Python caches and old virtualenv'
+                find ${sharedLibDir} -name '*.pyc' -delete
+                find ${sharedLibDir} -name '__pycache__' -type d -exec rm -rf {} +
+                rm -rf \$VENV_PATH
 
-splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+                echo '🐍 Creating fresh virtual environment'
+                python3 -m venv \$VENV_PATH
+                . \$VENV_PATH/bin/activate
+                pip install --upgrade pip
 
-docs = []
-for root, _, files in os.walk(args.code_dir):
-    for f in files:
-        if f.endswith(".tf") or f.endswith(".tf.json"):
-            docs += splitter.split_documents(TextLoader(os.path.join(root, f)).load())
+                echo '📦 Installing required packages one by one'
+                pip install langchain==0.0.300
+                pip install langchain-openai==0.0.5
+                pip install chromadb==0.4.22
 
-docs += splitter.split_documents(TextLoader(args.guardrails).load())
+                echo '🧾 Logging installed packages for audit'
+                pip freeze > ${workdir}/installed_packages.txt
 
-Chroma.from_documents(
-    documents=docs,
-    embedding=embeddings,
-    collection_name=args.namespace,
-    persist_directory="./chroma"
-).persist()
+                echo '🔍 Verifying correct indexer.py is in use'
+                head -n 5 ${sharedLibDir}/indexer.py
+            """
+
+            sh """
+                echo '📦 Indexing Terraform code and guardrails into vector DB'
+                . \$VENV_PATH/bin/activate
+                python3 ${sharedLibDir}/indexer.py \
+                  --code_dir ${workdir}/terraform-infra-provision \
+                  --guardrails ${sharedLibDir}/guardrails_v1.txt \
+                  --namespace ${namespace}
+            """
+
+            sh """
+                echo '🧠 Constructing payload for Azure OpenAI'
+                . \$VENV_PATH/bin/activate
+                python3 ${sharedLibDir}/query.py \
+                  --plan ${workdir}/tfplan.json \
+                  --guardrails ${sharedLibDir}/guardrails_v1.txt \
+                  --namespace ${namespace} \
+                  --output ${workdir}/payload.json
+
+                echo '📡 Sending payload to Azure OpenAI'
+                curl -s -X POST "${AZURE_API_BASE}/openai/deployments/text-embedding-ada-002/chat/completions?api-version=2023-05-15" \
+                  -H "Content-Type: application/json" \
+                  -H "api-key: ${AZURE_API_KEY}" \
+                  -d "@${workdir}/payload.json" \
+                  > ${workdir}/output.html.raw
+
+                jq -r '.choices[0].message.content' ${workdir}/output.html.raw > ${workdir}/output.html
+
+                echo '🧾 Logging normalized plan and raw response for audit'
+                cp ${workdir}/tfplan.json ${workdir}/output.html.plan.json
+                cp ${workdir}/output.html.raw ${workdir}/output.html.response.json
+            """
+
+            sh """
+                echo '🛡️ Extracting Guardrail Coverage'
+                grep -i 'Overall Guardrail Coverage' ${workdir}/output.html | grep -o '[0-9]\\{1,3\\}%'
+            """
+        }
+    }
+}
