@@ -7,12 +7,24 @@ def call(Map config = [:]) {
 
     stage("AI Analytics") {
         withEnv(["VENV_PATH=venv"]) {
+            writeFile file: "${sharedLibDir}/requirements.txt", text: '''
+langchain==0.1.13
+langchain-community==0.4.1
+langchain-openai==0.1.1
+chromadb==1.3.4
+openai==2.7.1
+tiktoken==0.12.0
+'''
+
             sh """
-                echo '🐍 Setting up Python virtual environment'
+                echo '🧹 Cleaning up old virtual environment if it exists'
+                rm -rf \$VENV_PATH
+
+                echo '🐍 Setting up fresh Python virtual environment'
                 python3 -m venv \$VENV_PATH
                 . \$VENV_PATH/bin/activate
                 pip install --upgrade pip
-                echo '📦 Validating requirements.txt contents'
+                echo '📦 Validating injected requirements.txt'
                 cat ${sharedLibDir}/requirements.txt
                 pip install -r ${sharedLibDir}/requirements.txt
             """
