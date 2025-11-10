@@ -1,76 +1,56 @@
-def call(Map config = [:]) {
-    def workdir = config.workdir
-    def sharedLibName = config.sharedLibName
-    def repoName = config.repoName
-    def buildNumber = config.buildNumber
-    def namespace = "${repoName}-${buildNumber}"
+def call(
+    String tfPlanJson,
+    String guardrailsPath,
+    String htmlTemplatePath,
+    String outputHtmlPath,
+    String payloadPath,
+    String azureApiKey,
+    String azureApiBase,
+    String deploymentName,
+    String apiVersion
+) {
+    sh """
+        echo "📄 Escaping input files for payload"
+        PLAN_FILE_CONTENT=\$(jq -Rs . < ${tfPlanJson})
+        GUARDRAILS_CONTENT=\$(jq -Rs . < ${guardrailsPath})
+        SAMPLE_HTML=\$(jq -Rs . < ${htmlTemplatePath})
 
-    stage("Running AI Analytics") {
-        withEnv(["VENV_PATH=venv"]) {
+        echo "🧠 Constructing deterministic prompt for Azure OpenAI"
+        cat <<EOF > ${payloadPath}
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a Terraform compliance auditor. You will receive three input files: 1) Terraform Plan in JSON format, 2) Guardrails Checklist (versioned), and 3) Sample HTML Template.\\n\\nYour task is to analyze the Terraform plan against the guardrails and return a single HTML output with the following sections:\\n\\n1️⃣ Change Summary Table\\n- Title: 'What's Being Changed'\\n- Columns: Resource Name, Resource Type, Action (Add/Delete/Update), Details\\n- Ensure resource count matches Terraform plan\\n\\n2️⃣ Terraform Code Recommendations\\n- Actionable suggestions to improve code quality\\n\\n3️⃣ Security and Compliance Recommendations\\n- Highlight misconfigurations and generic recommendations\\n\\n4️⃣ Guardrail Coverage Table\\n- Title: 'Guardrail Compliance Summary'\\n- Columns: Terraform Resource, Guardrail Type, Non-Compliance Rules (with Rule ID and description), Percentage Met\\n- End with Overall Guardrail Coverage %\\n\\n📊 Coverage Calculation\\n- For each resource, count total applicable rules and passed rules\\n- Compute: (passed / applicable) × 100\\n- Round to nearest integer\\n- Use same logic across runs for consistency\\n\\n5️⃣ Overall Status\\n- Status: PASS if coverage ≥ 90%, else FAIL\\n\\n6️⃣ HTML Formatting\\n- Match visual structure of sample HTML using semantic tags and inline styles"
+    },
+    { "role": "user", "content": "Terraform Plan File:\\n" },
+    { "role": "user", "content": \${PLAN_FILE_CONTENT} },
+    { "role": "user", "content": "Sample HTML File:\\n" },
+    { "role": "user", "content": \${SAMPLE_HTML} },
+    { "role": "user", "content": "Guardrails Checklist File (Versioned):\\n" },
+    { "role": "user", "content": \${GUARDRAILS_CONTENT} }
+  ],
+  "max_tokens": 10000,
+  "temperature": 0.0
+}
+EOF
 
-            // ✅ Copy shared library files into workspace
-        writeFile file: "${workdir}/indexer.py", text: libraryResource("indexer.py")
-        writeFile file: "${workdir}/query.py", text: libraryResource("query.py")
-        writeFile file: "${workdir}/guardrails_v1.txt", text: libraryResource("guardrails_v1.txt")
+        echo "📡 Sending payload to Azure OpenAI"
+        RESPONSE_FILE=${outputHtmlPath}.raw
+        curl -s -X POST "${azureApiBase}/openai/deployments/${deploymentName}/chat/completions?api-version=${apiVersion}" \\
+             -H "Content-Type: application/json" \\
+             -H "api-key: ${azureApiKey}" \\
+             -d @${payloadPath} > \$RESPONSE_FILE
 
+        echo "📥 Parsing response and writing output"
+        if jq -e '.choices[0].message.content' \$RESPONSE_FILE > /dev/null; then
+            jq -r '.choices[0].message.content' \$RESPONSE_FILE > ${outputHtmlPath}
+        else
+            echo "<html><body><h2>⚠️ AI response was empty or malformed</h2><p>Please check payload formatting and Azure OpenAI status.</p></body></html>" > ${outputHtmlPath}
+        fi
 
-            sh """
-                echo '🔥 Cleaning Python caches and old virtualenv'
-                rm -rf \$VENV_PATH
-
-                echo '🐍 Creating fresh Python virtual environment'
-                python3 -m venv \$VENV_PATH
-                . \$VENV_PATH/bin/activate
-                pip install --upgrade pip
-
-                echo '📦 Installing required packages one by one'
-                pip install langchain==0.0.300
-                pip install langchain-openai==0.0.5
-                pip install chromadb==0.4.22
-
-                echo '🧾 Logging installed packages for audit'
-                pip freeze > ${workdir}/installed_packages.txt
-
-                echo '🔍 Verifying correct indexer.py is in use'
-                head -n 5 ${workdir}/indexer.py
-            """
-
-            sh """
-                echo '📦 Indexing Terraform code and guardrails into vector DB'
-                . \$VENV_PATH/bin/activate
-                python3 ${workdir}/indexer.py \
-                  --code_dir ${workdir}/terraform-infra-provision \
-                  --guardrails ${workdir}/guardrails_v1.txt \
-                  --namespace ${namespace}
-            """
-
-            sh """
-                echo '🧠 Constructing payload for Azure OpenAI'
-                . \$VENV_PATH/bin/activate
-                python3 ${workdir}/query.py \
-                  --plan ${workdir}/tfplan.json \
-                  --guardrails ${workdir}/guardrails_v1.txt \
-                  --namespace ${namespace} \
-                  --output ${workdir}/payload.json
-
-                echo '📡 Sending payload to Azure OpenAI'
-                curl -s -X POST "${AZURE_API_BASE}/openai/deployments/text-embedding-ada-002/chat/completions?api-version=2023-05-15" \
-                  -H "Content-Type: application/json" \
-                  -H "api-key: ${AZURE_API_KEY}" \
-                  -d "@${workdir}/payload.json" \
-                  > ${workdir}/output.html.raw
-
-                jq -r '.choices[0].message.content' ${workdir}/output.html.raw > ${workdir}/output.html
-
-                echo '🧾 Logging normalized plan and raw response for audit'
-                cp ${workdir}/tfplan.json ${workdir}/output.html.plan.json
-                cp ${workdir}/output.html.raw ${workdir}/output.html.response.json
-            """
-
-            sh """
-                echo '🛡️ Extracting Guardrail Coverage'
-                grep -i 'Overall Guardrail Coverage' ${workdir}/output.html | grep -o '[0-9]\\{1,3\\}%'
-            """
-        }
-    }
+        echo "🧾 Logging normalized plan and raw response for audit"
+        cp ${tfPlanJson} ${outputHtmlPath}.plan.json
+        cp \$RESPONSE_FILE ${outputHtmlPath}.response.json
+    """
 }

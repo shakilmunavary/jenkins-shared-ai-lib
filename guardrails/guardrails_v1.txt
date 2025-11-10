@@ -1,0 +1,150 @@
+# Guardrails Version: v1.0 — Do not modify without version bump
+# Format: [Rule ID], Resource Type, Rule, Severity, Compliance Check
+
+# ============================================
+# EC2 Instance Guardrails
+# ============================================
+
+[Rule ID: EC2-001]
+Resource Type: aws_instance
+Rule: Must use approved AMIs (e.g., hardened or CIS-compliant)
+Severity: High
+Compliance Check: AMI ID must match approved list or contain "cis" or "hardened" in description
+
+[Rule ID: EC2-002]
+Resource Type: aws_instance
+Rule: Must have IMDSv2 enabled
+Severity: High
+Compliance Check: metadata_options.http_tokens must be "required"
+
+[Rule ID: EC2-003]
+Resource Type: aws_instance
+Rule: Must not use public IP unless explicitly required
+Severity: Medium
+Compliance Check: associate_public_ip_address must be false unless tagged "PublicAccess: true"
+
+[Rule ID: EC2-004]
+Resource Type: aws_instance
+Rule: Must be launched in private subnets unless justified
+Severity: Medium
+Compliance Check: subnet_id must belong to private subnet group unless tagged "SubnetJustification: true"
+
+[Rule ID: EC2-005]
+Resource Type: aws_instance
+Rule: Must have termination protection enabled
+Severity: Medium
+Compliance Check: disable_api_termination must be true
+
+[Rule ID: EC2-006]
+Resource Type: aws_instance
+Rule: Must be tagged with "Owner", "Environment", and "CostCenter"
+Severity: Medium
+Compliance Check: tags must include all three keys
+
+# ============================================
+# Load Balancer Guardrails
+# ============================================
+
+[Rule ID: LB-001]
+Resource Type: aws_lb
+Rule: Must use TLS 1.2 or higher
+Severity: High
+Compliance Check: ssl_policy must include "TLS_1_2" or higher
+
+[Rule ID: LB-002]
+Resource Type: aws_lb
+Rule: Must have access logs enabled
+Severity: Medium
+Compliance Check: access_logs.enabled must be true
+
+[Rule ID: LB-003]
+Resource Type: aws_lb
+Rule: Must not expose ports other than 443 and 80 unless justified
+Severity: Medium
+Compliance Check: listener.port must be 443 or 80 unless tagged "PortJustification: true"
+
+[Rule ID: LB-004]
+Resource Type: aws_lb
+Rule: Must use secure SSL certificates from trusted issuers
+Severity: High
+Compliance Check: certificate_arn must reference trusted CA
+
+[Rule ID: LB-005]
+Resource Type: aws_lb
+Rule: Must be deployed in multiple AZs for high availability
+Severity: High
+Compliance Check: availability_zones must include more than one zone
+
+# ============================================
+# S3 Bucket Guardrails
+# ============================================
+
+[Rule ID: S3-001]
+Resource Type: aws_s3_bucket
+Rule: Must have encryption enabled (AES256 or KMS)
+Severity: High
+Compliance Check: server_side_encryption_configuration must be present
+
+[Rule ID: S3-002]
+Resource Type: aws_s3_bucket
+Rule: Must block all public access
+Severity: High
+Compliance Check: block_public_acls, block_public_policy, ignore_public_acls, restrict_public_buckets must all be true
+
+[Rule ID: S3-003]
+Resource Type: aws_s3_bucket
+Rule: Must enable versioning
+Severity: Medium
+Compliance Check: versioning.enabled must be true
+
+[Rule ID: S3-004]
+Resource Type: aws_s3_bucket
+Rule: Must enable access logging
+Severity: Medium
+Compliance Check: logging must be configured
+
+[Rule ID: S3-005]
+Resource Type: aws_s3_bucket
+Rule: Must have lifecycle policies to manage storage costs
+Severity: Medium
+Compliance Check: lifecycle_rule must be present
+
+[Rule ID: S3-006]
+Resource Type: aws_s3_bucket
+Rule: Must be tagged with "Owner", "Environment", and "DataClassification"
+Severity: Medium
+Compliance Check: tags must include all three keys
+
+# ============================================
+# Security Group Guardrails
+# ============================================
+
+[Rule ID: SG-001]
+Resource Type: aws_security_group
+Rule: Must not allow 0.0.0.0/0 on ports 22 or 3389
+Severity: High
+Compliance Check: ingress.cidr_blocks must not include 0.0.0.0/0 for ports 22 or 3389
+
+[Rule ID: SG-002]
+Resource Type: aws_security_group
+Rule: Must have descriptions for all rules
+Severity: Medium
+Compliance Check: ingress.description and egress.description must be present
+
+[Rule ID: SG-003]
+Resource Type: aws_security_group
+Rule: Must not allow all traffic (all protocols, all ports)
+Severity: High
+Compliance Check: protocol must not be "-1" and from_port/to_port must not be 0–65535
+
+[Rule ID: SG-004]
+Resource Type: aws_security_group
+Rule: Must be scoped to least privilege
+Severity: Medium
+Compliance Check: ingress and egress rules must be limited to required ports and CIDRs
+
+[Rule ID: SG-005]
+Resource Type: aws_security_group
+Rule: Must be attached only to required resources
+Severity: Medium
+Compliance Check: referenced_by must include only approved resource types
