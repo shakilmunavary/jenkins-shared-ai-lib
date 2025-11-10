@@ -1,20 +1,19 @@
-import os, argparse, json
-from langchain_community.vectorstores import Chroma
-from langchain_openai import AzureOpenAIEmbeddings
+import os
+import json
+import argparse
+from langchain.vectorstores import FAISS
+from langchain.embeddings import AzureOpenAIEmbeddings
+from langchain.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--plan")
-parser.add_argument("--namespace")
 parser.add_argument("--guardrails")
+parser.add_argument("--namespace")
 parser.add_argument("--output")
 args = parser.parse_args()
 
-with open(args.plan) as f:
-    plan_data = json.load(f)
-
-with open(args.guardrails) as f:
-    guardrails_text = f.read()
-
+# ✅ Load Azure OpenAI Embeddings
 embeddings = AzureOpenAIEmbeddings(
     azure_endpoint=os.getenv("AZURE_API_BASE"),
     api_key=os.getenv("AZURE_API_KEY"),
@@ -23,22 +22,47 @@ embeddings = AzureOpenAIEmbeddings(
     chunk_size=512
 )
 
-db = Chroma(collection_name=args.namespace, persist_directory="./chroma", embedding_function=embeddings)
-semantic_context = db.similarity_search("Terraform module logic and resource configuration", k=5)
+# ✅ Load FAISS index
+vectorstore = FAISS.load_local(f"./faiss_index/{args.namespace}", embeddings)
 
+# ✅ Load and split tfplan
+splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+plan_docs = splitter.split_documents(TextLoader(args.plan).load())
+
+# ✅ Load guardrails
+guardrail_text = TextLoader(args.guardrails).load()[0].page_content
+
+# ✅ Construct prompt using top-k semantic matches
+query_text = plan_docs[0].page_content
+matches = vectorstore.similarity_search(query_text, k=5)
+
+context = "\n\n".join([doc.page_content for doc in matches])
+
+prompt = f"""
+You are an AI compliance auditor. Use the following guardrails and context to assess the Terraform plan.
+
+Guardrails:
+{guardrail_text}
+
+Context from semantic index:
+{context}
+
+Terraform Plan:
+{query_text}
+
+Respond with a stakeholder-ready summary including overall guardrail coverage, key risks, and recommendations.
+"""
+
+# ✅ Build Azure OpenAI payload
 payload = {
-    "instructions": (
-        "You are a compliance auditor. For each AWS resource in the Terraform plan, "
-        "match applicable guardrails and evaluate compliance. Output a table with columns: "
-        "Resource Name, Rule ID, Rule, Percentage Met, Details. Then compute and display "
-        "**Overall Guardrail Coverage** as a percentage at the end."
-    ),
-    "terraform_plan": plan_data,
-    "guardrails": guardrails_text,
-    "semantic_context": [doc.page_content for doc in semantic_context]
+    "messages": [
+        {"role": "system", "content": "You are a Terraform compliance auditor."},
+        {"role": "user", "content": prompt}
+    ],
+    "temperature": 0.2,
+    "max_tokens": 1000
 }
 
+# ✅ Write payload to file
 with open(args.output, "w") as f:
     json.dump(payload, f, indent=2)
-
-print(f"✅ Payload written to {args.output}")
