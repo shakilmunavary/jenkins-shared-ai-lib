@@ -1,6 +1,6 @@
 import os
 import argparse
-from langchain.vectorstores import Chroma
+from langchain.vectorstores import FAISS
 from langchain.embeddings import AzureOpenAIEmbeddings
 from langchain.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -11,6 +11,7 @@ parser.add_argument("--guardrails")
 parser.add_argument("--namespace")
 args = parser.parse_args()
 
+# ✅ Azure OpenAI Embeddings
 embeddings = AzureOpenAIEmbeddings(
     azure_endpoint=os.getenv("AZURE_API_BASE"),
     api_key=os.getenv("AZURE_API_KEY"),
@@ -19,8 +20,10 @@ embeddings = AzureOpenAIEmbeddings(
     chunk_size=512
 )
 
+# ✅ Text splitter
 splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 
+# ✅ Load and split documents
 docs = []
 for root, _, files in os.walk(args.code_dir):
     for f in files:
@@ -29,9 +32,6 @@ for root, _, files in os.walk(args.code_dir):
 
 docs += splitter.split_documents(TextLoader(args.guardrails).load())
 
-Chroma.from_documents(
-    documents=docs,
-    embedding=embeddings,
-    collection_name=args.namespace,
-    persist_directory="./chroma"
-).persist()
+# ✅ Index using FAISS
+vectorstore = FAISS.from_documents(docs, embeddings)
+vectorstore.save_local(f"./faiss_index/{args.namespace}")
