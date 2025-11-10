@@ -9,9 +9,10 @@ def call(Map config = [:]) {
         withEnv(["VENV_PATH=venv"]) {
 
             // ✅ Copy shared library files into workspace
-            writeFile file: "${workdir}/indexer.py", text: libraryResource("${sharedLibName}/indexer.py")
-            writeFile file: "${workdir}/query.py", text: libraryResource("${sharedLibName}/query.py")
-            writeFile file: "${workdir}/guardrails_v1.txt", text: libraryResource("${sharedLibName}/guardrails_v1.txt")
+        writeFile file: "${workdir}/indexer.py", text: libraryResource("indexer.py")
+        writeFile file: "${workdir}/query.py", text: libraryResource("query.py")
+        writeFile file: "${workdir}/guardrails_v1.txt", text: libraryResource("guardrails_v1.txt")
+
 
             sh """
                 echo '🔥 Cleaning Python caches and old virtualenv'
