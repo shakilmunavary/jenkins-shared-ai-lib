@@ -5,8 +5,6 @@ from langchain.embeddings import AzureOpenAIEmbeddings
 from langchain.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--code_dir")
 parser.add_argument("--guardrails")
@@ -16,7 +14,7 @@ args = parser.parse_args()
 embeddings = AzureOpenAIEmbeddings(
     azure_endpoint=os.getenv("AZURE_API_BASE"),
     api_key=os.getenv("AZURE_API_KEY"),
-    model="text-embedding-ada-002",  # ✅ Hardcoded for Azure deployment
+    model="text-embedding-ada-002",
     api_version="2023-05-15",
     chunk_size=512
 )
@@ -31,4 +29,9 @@ for root, _, files in os.walk(args.code_dir):
 
 docs += splitter.split_documents(TextLoader(args.guardrails).load())
 
-Chroma.from_documents(docs, embeddings, collection_name=args.namespace, persist_directory="./chroma").persist()
+Chroma.from_documents(
+    documents=docs,
+    embedding=embeddings,
+    collection_name=args.namespace,
+    persist_directory="./chroma"
+).persist()
