@@ -5,7 +5,7 @@ def call(Map config = [:]) {
     def buildNumber = config.buildNumber
     def namespace = "${repoName}-${buildNumber}"
 
-    stage("AI Analytics") {
+    stage("Running AI Analytics") {
         withEnv(["VENV_PATH=venv"]) {
 
             sh """
