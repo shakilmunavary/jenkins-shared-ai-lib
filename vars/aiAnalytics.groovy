@@ -9,11 +9,11 @@ def call(Map config = [:]) {
         withEnv(["VENV_PATH=venv"]) {
             writeFile file: "${sharedLibDir}/requirements.txt", text: '''
 langchain==0.1.13
-langchain-community==0.4.1
-langchain-openai==0.1.1
-chromadb==1.3.4
-openai==2.7.1
-tiktoken==0.12.0
+langchain-community==0.0.26
+langchain-openai==0.0.5
+chromadb==0.4.22
+openai==1.3.7
+tiktoken==0.5.1
 '''
 
             sh """
