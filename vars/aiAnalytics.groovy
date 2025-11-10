@@ -11,7 +11,6 @@ def call(Map config = [:]) {
 langchain==0.0.300
 langchain-openai==0.0.5
 chromadb==0.4.22
-tiktoken==0.5.1
 '''
 
             sh """
