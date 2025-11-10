@@ -7,23 +7,28 @@ def call(Map config = [:]) {
 
     stage("AI Analytics") {
         withEnv(["VENV_PATH=venv"]) {
-            writeFile file: "${sharedLibDir}/requirements.txt", text: '''
-langchain==0.0.300
-langchain-openai==0.0.5
-chromadb==0.4.22
-'''
 
             sh """
-                echo '🧹 Cleaning up old virtual environment if it exists'
+                echo '🔥 Cleaning Python caches and old virtualenv'
+                find ${sharedLibDir} -name '*.pyc' -delete
+                find ${sharedLibDir} -name '__pycache__' -type d -exec rm -rf {} +
                 rm -rf \$VENV_PATH
 
-                echo '🐍 Setting up fresh Python virtual environment'
+                echo '🐍 Creating fresh Python virtual environment'
                 python3 -m venv \$VENV_PATH
                 . \$VENV_PATH/bin/activate
                 pip install --upgrade pip
-                echo '📦 Validating injected requirements.txt'
-                cat ${sharedLibDir}/requirements.txt
-                pip install -r ${sharedLibDir}/requirements.txt
+
+                echo '📦 Installing required packages one by one'
+                pip install langchain==0.0.300
+                pip install langchain-openai==0.0.5
+                pip install chromadb==0.4.22
+
+                echo '🧾 Logging installed packages for audit'
+                pip freeze > ${workdir}/installed_packages.txt
+
+                echo '🔍 Verifying correct indexer.py is in use'
+                grep 'from langchain' ${sharedLibDir}/indexer.py | head -n 3
             """
 
             sh """
