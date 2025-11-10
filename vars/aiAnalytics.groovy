@@ -52,5 +52,16 @@ EOF
         echo "🧾 Logging normalized plan and raw response for audit"
         cp ${tfPlanJson} ${outputHtmlPath}.plan.json
         cp \$RESPONSE_FILE ${outputHtmlPath}.response.json
+
+        echo "🔍 Recalculating guardrail coverage from HTML output"
+        PASS_COUNT=\$(grep -c '\\tPASS' ${outputHtmlPath})
+        TOTAL_COUNT=\$(grep -E '\\t(PASS|FAIL)' ${outputHtmlPath} | wc -l)
+        if [ \$TOTAL_COUNT -gt 0 ]; then
+            COVERAGE=\$(awk "BEGIN {printf \\"%.0f\\", (\$PASS_COUNT/\$TOTAL_COUNT)*100}")
+            sed -i "s/Overall Guardrail Coverage: .*/Overall Guardrail Coverage: \$COVERAGE%/" ${outputHtmlPath}
+            echo "✅ Corrected coverage: \$COVERAGE%"
+        else
+            echo "⚠️ No rule evaluations found in HTML. Coverage not updated."
+        fi
     """
 }
