@@ -5,48 +5,52 @@ def call(Map config = [:]) {
     def buildNumber = config.buildNumber
     def namespace = "${repoName}-${buildNumber}"
 
-    stage("Index Terraform Code") {
-        sh """
-            echo '📦 Indexing Terraform code and guardrails into vector DB'
-            python3 ${sharedLibDir}/indexer.py \
-              --code_dir ${workdir}/terraform-infra-provision \
-              --guardrails ${sharedLibDir}/guardrails_v1.txt \
-              --namespace ${namespace}
-        """
-    }
-
     stage("AI Analytics") {
-        sh """
-            echo '🧠 Constructing payload for Azure OpenAI'
-            python3 ${sharedLibDir}/query.py \
-              --plan ${workdir}/tfplan.json \
-              --guardrails ${sharedLibDir}/guardrails_v1.txt \
-              --namespace ${namespace} \
-              --output ${workdir}/payload.json
+        withEnv(["VENV_PATH=venv"]) {
+            sh """
+                echo '🐍 Setting up Python virtual environment'
+                python3 -m venv \$VENV_PATH
+                . \$VENV_PATH/bin/activate
+                pip install --upgrade pip
+                pip install -r ${sharedLibDir}/requirements.txt
+            """
 
-            echo '📡 Sending payload to Azure OpenAI'
-            curl -s -X POST "${AZURE_API_BASE}/openai/deployments/text-embedding-ada-002/chat/completions?api-version=2023-05-15" \
-              -H "Content-Type: application/json" \
-              -H "api-key: ${AZURE_API_KEY}" \
-              -d "@${workdir}/payload.json" \
-              > ${workdir}/output.html.raw
+            sh """
+                echo '📦 Indexing Terraform code and guardrails into vector DB'
+                . \$VENV_PATH/bin/activate
+                python3 ${sharedLibDir}/indexer.py \
+                  --code_dir ${workdir}/terraform-infra-provision \
+                  --guardrails ${sharedLibDir}/guardrails_v1.txt \
+                  --namespace ${namespace}
+            """
 
-            jq -r '.choices[0].message.content' ${workdir}/output.html.raw > ${workdir}/output.html
+            sh """
+                echo '🧠 Constructing payload for Azure OpenAI'
+                . \$VENV_PATH/bin/activate
+                python3 ${sharedLibDir}/query.py \
+                  --plan ${workdir}/tfplan.json \
+                  --guardrails ${sharedLibDir}/guardrails_v1.txt \
+                  --namespace ${namespace} \
+                  --output ${workdir}/payload.json
 
-            echo '🧾 Logging normalized plan and raw response for audit'
-            cp ${workdir}/tfplan.json ${workdir}/output.html.plan.json
-            cp ${workdir}/output.html.raw ${workdir}/output.html.response.json
-        """
-    }
+                echo '📡 Sending payload to Azure OpenAI'
+                curl -s -X POST "${AZURE_API_BASE}/openai/deployments/text-embedding-ada-002/chat/completions?api-version=2023-05-15" \
+                  -H "Content-Type: application/json" \
+                  -H "api-key: ${AZURE_API_KEY}" \
+                  -d "@${workdir}/payload.json" \
+                  > ${workdir}/output.html.raw
 
-    stage("Evaluate Guardrail Coverage") {
-        script {
-            def coverage = sh(
-                script: "grep -i 'Overall Guardrail Coverage' ${workdir}/output.html | grep -o '[0-9]\\{1,3\\}%'",
-                returnStdout: true
-            ).trim()
+                jq -r '.choices[0].message.content' ${workdir}/output.html.raw > ${workdir}/output.html
 
-            echo "🛡️ Guardrail Coverage: ${coverage}"
+                echo '🧾 Logging normalized plan and raw response for audit'
+                cp ${workdir}/tfplan.json ${workdir}/output.html.plan.json
+                cp ${workdir}/output.html.raw ${workdir}/output.html.response.json
+            """
+
+            sh """
+                echo '🛡️ Extracting Guardrail Coverage'
+                grep -i 'Overall Guardrail Coverage' ${workdir}/output.html | grep -o '[0-9]\\{1,3\\}%'
+            """
         }
     }
 }
