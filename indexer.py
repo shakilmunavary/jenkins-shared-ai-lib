@@ -1,8 +1,10 @@
-import os, argparse
+import os
+import argparse
 from langchain.vectorstores import Chroma
-from langchain_openai import AzureOpenAIEmbeddings
-from langchain_community.document_loaders import TextLoader
+from langchain.embeddings import AzureOpenAIEmbeddings
+from langchain.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--code_dir")
