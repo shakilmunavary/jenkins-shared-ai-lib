@@ -1,6 +1,6 @@
 def call(Map config = [:]) {
     def workdir = config.workdir
-    def sharedLibDir = config.sharedLibDir
+    def sharedLibName = config.sharedLibName
     def repoName = config.repoName
     def buildNumber = config.buildNumber
     def namespace = "${repoName}-${buildNumber}"
@@ -8,19 +8,16 @@ def call(Map config = [:]) {
     stage("Running AI Analytics") {
         withEnv(["VENV_PATH=venv"]) {
 
+            // ✅ Copy shared library files into workspace
+            writeFile file: "${workdir}/indexer.py", text: libraryResource("${sharedLibName}/indexer.py")
+            writeFile file: "${workdir}/query.py", text: libraryResource("${sharedLibName}/query.py")
+            writeFile file: "${workdir}/guardrails_v1.txt", text: libraryResource("${sharedLibName}/guardrails_v1.txt")
+
             sh """
-                echo '🧹 Checking and cleaning shared library workspace if exists'
-                if [ -d "${sharedLibDir}" ]; then
-                    echo '🔥 Purging stale Python caches and shared library workspace'
-                    find ${sharedLibDir} -name '*.pyc' -delete || true
-                    find ${sharedLibDir} -name '__pycache__' -type d -exec rm -rf {} + || true
-                    rm -rf ${sharedLibDir}
-                else
-                    echo '⚠️ Shared library directory not found: ${sharedLibDir}'
-                fi
+                echo '🔥 Cleaning Python caches and old virtualenv'
+                rm -rf \$VENV_PATH
 
                 echo '🐍 Creating fresh Python virtual environment'
-                rm -rf \$VENV_PATH
                 python3 -m venv \$VENV_PATH
                 . \$VENV_PATH/bin/activate
                 pip install --upgrade pip
@@ -34,24 +31,24 @@ def call(Map config = [:]) {
                 pip freeze > ${workdir}/installed_packages.txt
 
                 echo '🔍 Verifying correct indexer.py is in use'
-                grep 'from langchain' ${sharedLibDir}/indexer.py | head -n 3
+                head -n 5 ${workdir}/indexer.py
             """
 
             sh """
                 echo '📦 Indexing Terraform code and guardrails into vector DB'
                 . \$VENV_PATH/bin/activate
-                python3 ${sharedLibDir}/indexer.py \
+                python3 ${workdir}/indexer.py \
                   --code_dir ${workdir}/terraform-infra-provision \
-                  --guardrails ${sharedLibDir}/guardrails_v1.txt \
+                  --guardrails ${workdir}/guardrails_v1.txt \
                   --namespace ${namespace}
             """
 
             sh """
                 echo '🧠 Constructing payload for Azure OpenAI'
                 . \$VENV_PATH/bin/activate
-                python3 ${sharedLibDir}/query.py \
+                python3 ${workdir}/query.py \
                   --plan ${workdir}/tfplan.json \
-                  --guardrails ${sharedLibDir}/guardrails_v1.txt \
+                  --guardrails ${workdir}/guardrails_v1.txt \
                   --namespace ${namespace} \
                   --output ${workdir}/payload.json
 
