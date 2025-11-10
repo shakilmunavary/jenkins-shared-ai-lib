@@ -54,8 +54,10 @@ EOF
         cp \$RESPONSE_FILE ${outputHtmlPath}.response.json
 
         echo "🔍 Recalculating guardrail coverage from HTML output"
-        PASS_COUNT=\$(grep -c '\\tPASS' ${outputHtmlPath})
-        TOTAL_COUNT=\$(grep -E '\\t(PASS|FAIL)' ${outputHtmlPath} | wc -l)
+        PASS_COUNT=\$(grep -o 'class="pass"' ${outputHtmlPath} | wc -l)
+        FAIL_COUNT=\$(grep -o 'class="fail"' ${outputHtmlPath} | wc -l)
+        TOTAL_COUNT=\$((PASS_COUNT + FAIL_COUNT))
+
         if [ \$TOTAL_COUNT -gt 0 ]; then
             COVERAGE=\$(awk "BEGIN {printf \\"%.0f\\", (\$PASS_COUNT/\$TOTAL_COUNT)*100}")
             sed -i "s/Overall Guardrail Coverage: .*/Overall Guardrail Coverage: \$COVERAGE%/" ${outputHtmlPath}
