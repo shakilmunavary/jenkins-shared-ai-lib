@@ -9,16 +9,18 @@ def call(Map config = [:]) {
         withEnv(["VENV_PATH=venv"]) {
 
             sh """
-                echo '🔥 Cleaning Python caches and old virtualenv'
+                echo '🧹 Checking and cleaning shared library workspace if exists'
                 if [ -d "${sharedLibDir}" ]; then
+                    echo '🔥 Purging stale Python caches and shared library workspace'
                     find ${sharedLibDir} -name '*.pyc' -delete || true
                     find ${sharedLibDir} -name '__pycache__' -type d -exec rm -rf {} + || true
+                    rm -rf ${sharedLibDir}
                 else
                     echo '⚠️ Shared library directory not found: ${sharedLibDir}'
                 fi
-                rm -rf \$VENV_PATH
 
                 echo '🐍 Creating fresh Python virtual environment'
+                rm -rf \$VENV_PATH
                 python3 -m venv \$VENV_PATH
                 . \$VENV_PATH/bin/activate
                 pip install --upgrade pip
