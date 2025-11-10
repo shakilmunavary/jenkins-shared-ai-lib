@@ -10,8 +10,12 @@ def call(Map config = [:]) {
 
             sh """
                 echo '🔥 Cleaning Python caches and old virtualenv'
-                find ${sharedLibDir} -name '*.pyc' -delete
-                find ${sharedLibDir} -name '__pycache__' -type d -exec rm -rf {} +
+                if [ -d "${sharedLibDir}" ]; then
+                    find ${sharedLibDir} -name '*.pyc' -delete || true
+                    find ${sharedLibDir} -name '__pycache__' -type d -exec rm -rf {} + || true
+                else
+                    echo '⚠️ Shared library directory not found: ${sharedLibDir}'
+                fi
                 rm -rf \$VENV_PATH
 
                 echo '🐍 Creating fresh Python virtual environment'
