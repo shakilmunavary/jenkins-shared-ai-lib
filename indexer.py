@@ -11,10 +11,10 @@ parser.add_argument("--namespace")
 args = parser.parse_args()
 
 embeddings = AzureOpenAIEmbeddings(
-    azure_endpoint=os.getenv("AZURE_API_BASE"),  # ✅ From environment
+    azure_endpoint=os.getenv("AZURE_API_BASE"),
     api_key=os.getenv("AZURE_API_KEY"),
-    model="text-embedding-ada-002",              # ✅ Hardcoded for testing
-    api_version="2023-05-15",                    # ✅ Hardcoded for testing
+    model="text-embedding-ada-002",  # ✅ Hardcoded for Azure deployment
+    api_version="2023-05-15",
     chunk_size=512
 )
 
