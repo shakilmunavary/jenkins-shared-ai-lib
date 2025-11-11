@@ -52,7 +52,7 @@ def call(Map config) {
           # Find all guardrail lines starting with '['
           grep "^\
 
-\[" "$GUARDRAILS" | while read RULELINE; do
+            \[" "$GUARDRAILS" | while read RULELINE; do
             RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID: \\([^]]*\\)].*/\\1/p")
             RULEDESC=$(grep -A1 "$RULELINE" "$GUARDRAILS" | grep "Rule:" | sed "s/Rule: //")
             echo -e "${RES}\\t${RULEID}\\t${RULEDESC}" >> "$MATRIX"
