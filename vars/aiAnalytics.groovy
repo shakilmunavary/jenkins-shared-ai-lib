@@ -38,39 +38,33 @@ def call(Map config) {
   }
 
   stage('Generate Resource × Rule Matrix') {
-    def tfDir        = "${TMP_DIR}/terraform-code/${folderName}"
-    def guardrails   = new File("${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt")
-    def matrixFile   = new File("${tfDir}/resource_rule_matrix.txt")
-    matrixFile.text  = ""
+    dir("${TMP_DIR}/terraform-code/${folderName}") {
+      sh '''
+        set -euo pipefail
 
-    def resources = sh(script: "jq -r '.resource_changes[].address' ${tfDir}/tfplan.json", returnStdout: true).trim().split("\n")
-    def lines = guardrails.readLines()
+        PLAN=tfplan.json
+        GUARDRAILS=$WORKSPACE/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
+        MATRIX=resource_rule_matrix.txt
+        : > "$MATRIX"
 
-    resources.each { res ->
-      def type = res.split("\\.")[0]
-      def inType = false
-      def ruleId = null
+        RESOURCES=$(jq -r ".resource_changes[].address" "$PLAN" | sort -u)
 
-      lines.eachWithIndex { line, idx ->
-        if (line.startsWith("Resource Type: ${type}")) {
-          inType = true
-        } else if (line.startsWith("Resource Type:")) {
-          inType = false
-        }
+        for RES in $RESOURCES; do
+          TYPE=$(echo "$RES" | cut -d"." -f1)
 
-        if (inType && line.contains("Rule ID:")) {
-          ruleId = line.replaceAll(/.*Rule ID:\s*([^\]]*).*/, '$1')
-          def ruleDesc = ""
-          for (int j = idx+1; j < lines.size(); j++) {
-            if (lines[j].startsWith("Rule:")) {
-              ruleDesc = lines[j].replaceFirst("Rule:\\s*", "")
-              break
-            }
-          }
-          if (!ruleDesc) ruleDesc = "Rule description not found"
-          matrixFile << "${res}\t${ruleId}\t${ruleDesc}\n"
-        }
-      }
+          # Extract all Rule IDs for this resource type
+          grep -A5 -E "Resource Type:[[:space:]]*$TYPE" "$GUARDRAILS" | \
+            grep "Rule ID:" | while read -r RULELINE; do
+              RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID:[[:space:]]*\\([^]]*\\)].*/\\1/p")
+              RULEDESC=$(grep -A1 "$RULELINE" "$GUARDRAILS" | grep "^Rule:" | sed "s/^Rule:[[:space:]]*//")
+              [ -z "$RULEDESC" ] && RULEDESC="Rule description not found"
+              printf "%s\\t%s\\t%s\\n" "$RES" "$RULEID" "$RULEDESC" >> "$MATRIX"
+            done
+        done
+
+        echo "Matrix generated at: $MATRIX"
+        wc -l "$MATRIX" || true
+      '''
     }
   }
 
