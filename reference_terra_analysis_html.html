@@ -52,7 +52,6 @@ def call(Map config) {
         for RES in $RESOURCES; do
           TYPE=$(echo "$RES" | cut -d"." -f1)
 
-          # Include only rules for this resource type
           awk -v type="$TYPE" '
             $0 ~ "^Resource Type:[[:space:]]*"type"$" { inType=1; next }
             /^Resource Type:/ { inType=0 }
@@ -121,34 +120,7 @@ EOF
              -H "api-key: \${AZURE_API_KEY}" \\
              -d @"${payloadPath}" > "${responsePath}"
 
-        # Extract content, strip any code fences. If HTML skeleton missing, wrap in sample template.
-        CONTENT_FILE="${tfDir}/content.txt"
-        jq -r '.choices[0].message.content // ""' "${responsePath}" | sed '/^```/d' > "${CONTENT_FILE}"
-
-        # Basic HTML validation & remediation
-        if ! grep -qi '<html' "${CONTENT_FILE}"; then
-          # Try to convert common Markdown headings to HTML headings as a guard (minimal)
-          sed -i 's/^###[[:space:]]\\(.*\\)$/<h3>\\1<\\/h3>/' "${CONTENT_FILE}"
-          sed -i 's/^##[[:space:]]\\(.*\\)$/<h2>\\1<\\/h2>/' "${CONTENT_FILE}"
-          sed -i 's/^#[[:space:]]\\(.*\\)$/<h1>\\1<\\/h1>/' "${CONTENT_FILE}"
-
-          # Load template and inject content into a placeholder or body end if no placeholder found
-          TEMPLATE_RAW=$(cat "${templatePath}")
-          if echo "${TEMPLATE_RAW}" | grep -q '<!--COMPLIANCE_CONTENT-->'; then
-            awk -v inj="$(sed 's/[&/]/\\\\&/g' "${CONTENT_FILE}")" '
-              BEGIN{RS=""; FS="</body>"}
-              { gsub("<!--COMPLIANCE_CONTENT-->", inj, $0); print $0 "</body>" }
-            ' "${templatePath}" > "${outputHtmlPath}"
-          else
-            # Append content safely before </body>
-            awk -v inj="$(sed 's/[&/]/\\\\&/g' "${CONTENT_FILE}")" '
-              BEGIN{RS="</body>"; ORS=""}
-              { print $0 inj "</body>" }
-            ' "${templatePath}" > "${outputHtmlPath}"
-          fi
-        else
-          cp "${CONTENT_FILE}" "${outputHtmlPath}"
-        fi
+        jq -r '.choices[0].message.content' "${responsePath}" | sed '/^```/d' > "${outputHtmlPath}"
       """
     }
   }
@@ -166,36 +138,14 @@ EOF
 
   stage('Evaluate Guardrail Coverage') {
     def outputHtml = "${TMP_DIR}/terraform-code/${folderName}/output.html"
-    // Count PASS/FAIL via class markers if present, else fallback to literal text
-    def passCount  = sh(script: """
-      grep -oi 'class=\"pass\"' '${outputHtml}' | wc -l | tr -d '\\n'
-    """,  returnStdout: true).trim().toInteger()
-    def failCount  = sh(script: """
-      grep -oi 'class=\"fail\"' '${outputHtml}' | wc -l | tr -d '\\n'
-    """,  returnStdout: true).trim().toInteger()
-
-    if ((passCount + failCount) == 0) {
-      passCount = sh(script: "grep -oi '>\\s*PASS\\s*<|>PASS<' '${outputHtml}' | wc -l | tr -d '\\n'", returnStdout: true).trim().toInteger()
-      failCount = sh(script: "grep -oi '>\\s*FAIL\\s*<|>FAIL<' '${outputHtml}' | wc -l | tr -d '\\n'", returnStdout: true).trim().toInteger()
-    }
-
+    def passCount  = sh(script: "grep -oi 'class=\"pass\"' '${outputHtml}' | wc -l",  returnStdout: true).trim().toInteger()
+    def failCount  = sh(script: "grep -oi 'class=\"fail\"' '${outputHtml}' | wc -l",  returnStdout: true).trim().toInteger()
     def coverage   = (passCount + failCount) > 0 ? (passCount * 100 / (passCount + failCount)).toInteger() : 0
 
-    echo "Guardrail Coverage: ${coverage}% (PASS=${passCount}, FAIL=${failCount})"
-    // Try to update any coverage line text if present
-    sh """
-      sed -i 's/Overall Guardrail Coverage:[[:space:]]*[0-9][0-9]*%/Overall Guardrail Coverage: ${coverage}%/' '${outputHtml}' || true
-    """
-
+    echo "Guardrail Coverage: ${coverage}%"
     env.PIPELINE_DECISION     = coverage >= 90 ? 'APPROVED' : 'REJECTED'
-    currentBuild.description  = "Auto-${env.PIPELINE_DECISION.toLowerCase()} (Coverage: ${coverage}%)"
+    currentBuild.description  = "Decision: ${env.PIPELINE_DECISION} (Coverage: ${coverage}%)"
   }
 
   stage('Decision') {
-    if (env.PIPELINE_DECISION == 'APPROVED') {
-      echo "Pipeline approved. Proceeding..."
-    } else {
-      echo "Pipeline rejected. Halting..."
-    }
-  }
-}
+    if (env.PIPELINE_DECISION == 'APPRO
