@@ -180,4 +180,11 @@ EOF
   stage('Evaluate Guardrail Coverage') {
     def outputHtml = "${TMP_DIR}/terraform-code/${folderName}/output.html"
     def passCount  = sh(script: "grep -oi 'class=\"pass\"' '${outputHtml}' | wc -l",  returnStdout: true).trim().toInteger()
-    def failCount  = sh(script: "grep -oi 'class=\"fail\"' '${outputHtml}' | wc -
+    def failCount  = sh(script: "grep -oi 'class=\"fail\"' '${outputHtml}' | wc -l",  returnStdout: true).trim().toInteger()
+    def coverage   = (passCount + failCount) > 0 ? (passCount * 100 / (passCount + failCount)).toInteger() : 0
+
+    echo "🔍 Guardrail Coverage: ${coverage}%"
+    sh "sed -i 's/Overall Guardrail Coverage: .*/Overall Guardrail Coverage: ${coverage}%/' '${outputHtml}'"
+
+    env.PIPELINE_DECISION     = coverage >= 90 ? 'APPROVED' : 'REJECTED'
+    currentBuild.description  = "
