@@ -43,9 +43,7 @@ def call(Map config) {
     def matrixFile   = new File("${tfDir}/resource_rule_matrix.txt")
     matrixFile.text  = ""
 
-    // Collect resource addresses
     def resources = sh(script: "jq -r '.resource_changes[].address' ${tfDir}/tfplan.json", returnStdout: true).trim().split("\n")
-
     def lines = guardrails.readLines()
 
     resources.each { res ->
@@ -62,7 +60,6 @@ def call(Map config) {
 
         if (inType && line.contains("Rule ID:")) {
           ruleId = line.replaceAll(/.*Rule ID:\s*([^\]]*).*/, '$1')
-          // Look ahead for Rule description
           def ruleDesc = ""
           for (int j = idx+1; j < lines.size(); j++) {
             if (lines[j].startsWith("Rule:")) {
@@ -100,48 +97,12 @@ def call(Map config) {
         SAMPLE_HTML=\$(jq -Rs . < "${templatePath}")
         MATRIX_CONTENT=\$(jq -Rs . < "${matrixPath}")
 
-        cat <<EOF > "${payloadPath}"
+        cat <<'EOF' > "${payloadPath}"
 {
   "messages": [
     {
       "role": "system",
-      "content": """
-You are a Terraform compliance auditor. You will receive four input files:
-1) Terraform Plan JSON,
-2) Guardrails Checklist,
-3) Sample HTML Template,
-4) Resource × Rule Matrix.
-
-Return a single HTML document with these sections:
-
-1️⃣ Change Summary Table
-- Title: 'What's Being Changed'
-- Columns: Resource Name, Resource Type, Action (Add/Delete/Update), Details
-- Ensure resource count matches Terraform plan
-
-2️⃣ Terraform Code Recommendations
-- Provide actionable suggestions to improve code quality
-
-3️⃣ Security and Compliance Recommendations
-- Highlight misconfigurations and generic recommendations
-
-4️⃣ Guardrail Compliance Summary
-- Title: 'Guardrail Compliance Summary'
-- Columns: Terraform Resource, Rule Id, Rule, Status (PASS or FAIL)
-- Evaluate each row in the Resource × Rule Matrix
-- No N/A values; every rule must be PASS or FAIL
-- Calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100
-
-5️⃣ Overall Status
-- PASS if coverage ≥ 90%, else FAIL
-
-6️⃣ HTML Formatting
-- Copy the <html>, <head>, <body> structure from the Sample HTML Template
-- Use <h2>, <h3> for headings
-- Use <table>, <thead>, <tbody>, <tr>, <th>, <td> for tables
-- Do not output Markdown, LaTeX, or code fences
-- Return only valid HTML that Jenkins publishHTML can render
-"""
+      "content": "You are a Terraform compliance auditor.\\nYou will receive four input files:\\n1) Terraform Plan JSON,\\n2) Guardrails Checklist,\\n3) Sample HTML Template,\\n4) Resource × Rule Matrix.\\n\\nReturn a single HTML document with these sections:\\n\\n1️⃣ Change Summary Table\\n- Title: 'What's Being Changed'\\n- Columns: Resource Name, Resource Type, Action (Add/Delete/Update), Details\\n- Ensure resource count matches Terraform plan\\n\\n2️⃣ Terraform Code Recommendations\\n- Provide actionable suggestions to improve code quality\\n\\n3️⃣ Security and Compliance Recommendations\\n- Highlight misconfigurations and generic recommendations\\n\\n4️⃣ Guardrail Compliance Summary\\n- Title: 'Guardrail Compliance Summary'\\n- Columns: Terraform Resource, Rule Id, Rule, Status (PASS or FAIL)\\n- Evaluate each row in the Resource × Rule Matrix\\n- No N/A values; every rule must be PASS or FAIL\\n- Calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100\\n\\n5️⃣ Overall Status\\n- PASS if coverage ≥ 90%, else FAIL\\n\\n6️⃣ HTML Formatting\\n- Copy the <html>, <head>, <body> structure from the Sample HTML Template\\n- Use <h2>, <h3> for headings\\n- Use <table>, <thead>, <tbody>, <tr>, <th>, <td> for tables\\n- Do not output Markdown, LaTeX, or code fences\\n- Return only valid HTML that Jenkins publishHTML can render"
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
     { "role": "user", "content": ${PLAN_FILE_CONTENT} },
