@@ -38,40 +38,42 @@ def call(Map config) {
   }
 
   stage('Generate Resource × Rule Matrix') {
-    dir("${TMP_DIR}/terraform-code/${folderName}") {
-      sh '''
-        set -euo pipefail
+    def tfDir        = "${TMP_DIR}/terraform-code/${folderName}"
+    def guardrails   = new File("${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt")
+    def matrixFile   = new File("${tfDir}/resource_rule_matrix.txt")
+    matrixFile.text  = ""
 
-        PLAN=tfplan.json
-        GUARDRAILS=$WORKSPACE/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
-        MATRIX=resource_rule_matrix.txt
-        : > "$MATRIX"
+    // Collect resource addresses
+    def resources = sh(script: "jq -r '.resource_changes[].address' ${tfDir}/tfplan.json", returnStdout: true).trim().split("\n")
 
-        RESOURCES=$(jq -r ".resource_changes[].address" "$PLAN" | sort -u)
+    def lines = guardrails.readLines()
 
-        for RES in $RESOURCES; do
-          TYPE=$(echo "$RES" | cut -d"." -f1)
+    resources.each { res ->
+      def type = res.split("\\.")[0]
+      def inType = false
+      def ruleId = null
 
-          # Capture both [Rule ID: …] and plain Rule ID: … headers
-          awk -v type="$TYPE" '
-            $0 ~ "^Resource Type:[[:space:]]*"type"$" { inType=1; next }
-            /^Resource Type:/ { inType=0 }
-            inType && /^\
+      lines.eachWithIndex { line, idx ->
+        if (line.startsWith("Resource Type: ${type}")) {
+          inType = true
+        } else if (line.startsWith("Resource Type:")) {
+          inType = false
+        }
 
-\[Rule ID:/ { print; next }
-            inType && /^Rule ID:/   { print; next }
-          ' "$GUARDRAILS" | while read -r RULELINE; do
-            RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID:[[:space:]]*\\([^]]*\\)].*/\\1/p")
-            RULEDESC=$(awk -v hdr="$RULELINE" '
-              BEGIN {found=0}
-              $0 == hdr {found=1; next}
-              found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", $0); print; exit }
-            ' "$GUARDRAILS")
-            [ -z "$RULEDESC" ] && RULEDESC="Rule description not found"
-            printf "%s\t%s\t%s\n" "$RES" "$RULEID" "$RULEDESC" >> "$MATRIX"
-          done
-        done
-      '''
+        if (inType && line.contains("Rule ID:")) {
+          ruleId = line.replaceAll(/.*Rule ID:\s*([^\]]*).*/, '$1')
+          // Look ahead for Rule description
+          def ruleDesc = ""
+          for (int j = idx+1; j < lines.size(); j++) {
+            if (lines[j].startsWith("Rule:")) {
+              ruleDesc = lines[j].replaceFirst("Rule:\\s*", "")
+              break
+            }
+          }
+          if (!ruleDesc) ruleDesc = "Rule description not found"
+          matrixFile << "${res}\t${ruleId}\t${ruleDesc}\n"
+        }
+      }
     }
   }
 
