@@ -52,7 +52,6 @@ def call(Map config) {
         for RES in $RESOURCES; do
           TYPE=$(echo "$RES" | cut -d"." -f1)
 
-          # Capture all Rule IDs for this resource type
           awk -v type="$TYPE" '
             $0 ~ "^Resource Type:[[:space:]]*"type"$" { inType=1; next }
             /^Resource Type:/ { inType=0 }
@@ -98,7 +97,7 @@ def call(Map config) {
         SAMPLE_HTML=\$(jq -Rs . < "${templatePath}")
         MATRIX_CONTENT=\$(jq -Rs . < "${matrixPath}")
 
-        cat <<'EOF' > "${payloadPath}"
+        cat <<EOF > "${payloadPath}"
 {
   "messages": [
     {
@@ -106,13 +105,13 @@ def call(Map config) {
       "content": "You are a Terraform compliance auditor.\\nYou will receive four input files:\\n1) Terraform Plan JSON,\\n2) Guardrails Checklist,\\n3) Sample HTML Template,\\n4) Resource × Rule Matrix.\\n\\nReturn a single HTML document with these sections:\\n\\n1️⃣ Change Summary Table\\n- Title: 'What's Being Changed'\\n- Columns: Resource Name, Resource Type, Action (Add/Delete/Update), Details\\n- Ensure resource count matches Terraform plan\\n\\n2️⃣ Terraform Code Recommendations\\n- Provide actionable suggestions to improve code quality\\n\\n3️⃣ Security and Compliance Recommendations\\n- Highlight misconfigurations and generic recommendations\\n\\n4️⃣ Guardrail Compliance Summary\\n- Title: 'Guardrail Compliance Summary'\\n- Columns: Terraform Resource, Rule Id, Rule, Status (PASS or FAIL)\\n- Evaluate each row in the Resource × Rule Matrix\\n- No N/A values; every rule must be PASS or FAIL\\n- Calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100\\n\\n5️⃣ Overall Status\\n- PASS if coverage ≥ 90%, else FAIL\\n\\n6️⃣ HTML Formatting\\n- Copy the <html>, <head>, <body> structure from the Sample HTML Template\\n- Use <h2>, <h3> for headings\\n- Use <table>, <thead>, <tbody>, <tr>, <th>, <td> for tables\\n- Do not output Markdown, LaTeX, or code fences\\n- Return only valid HTML that Jenkins publishHTML can render"
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
-    { "role": "user", "content": ${PLAN_FILE_CONTENT} },
+    { "role": "user", "content": $PLAN_FILE_CONTENT },
     { "role": "user", "content": "Sample HTML File:\\n" },
-    { "role": "user", "content": ${SAMPLE_HTML} },
+    { "role": "user", "content": $SAMPLE_HTML },
     { "role": "user", "content": "Guardrails Checklist File:\\n" },
-    { "role": "user", "content": ${GUARDRAILS_CONTENT} },
+    { "role": "user", "content": $GUARDRAILS_CONTENT },
     { "role": "user", "content": "Resource × Rule Matrix:\\n" },
-    { "role": "user", "content": ${MATRIX_CONTENT} }
+    { "role": "user", "content": $MATRIX_CONTENT }
   ],
   "max_tokens": 10000,
   "temperature": 0.0
