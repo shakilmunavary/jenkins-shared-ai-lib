@@ -2,19 +2,13 @@ def call(Map config) {
   def terraformRepo = config.terraformRepo
   def folderName    = config.folderName
 
-  // Isolated temp workspace inside Jenkins job folder
   def TMP_DIR = "${env.WORKSPACE}/tmp-${env.BUILD_ID}"
   sh "rm -rf '${TMP_DIR}' && mkdir -p '${TMP_DIR}'"
 
   stage('Clone Repos') {
     dir(TMP_DIR) {
       sh """
-        echo "📦 Cloning Terraform Repo"
-        rm -rf terraform-code
         git clone '${terraformRepo}' terraform-code
-
-        echo "📦 Cloning Shared AI Library"
-        rm -rf jenkins-shared-ai-lib
         git clone 'https://github.com/shakilmunavary/jenkins-shared-ai-lib.git' jenkins-shared-ai-lib
       """
     }
@@ -43,6 +37,33 @@ def call(Map config) {
     }
   }
 
+  stage('Generate Resource × Rule Matrix') {
+    dir("${TMP_DIR}/terraform-code/${folderName}") {
+      sh """
+        PLAN=tfplan.json
+        GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
+        MATRIX=resource_rule_matrix.txt
+        rm -f "$MATRIX"
+
+        RESOURCES=$(jq -r '.resource_changes[].address' "$PLAN")
+
+        for RES in $RESOURCES; do
+          TYPE=$(echo "$RES" | cut -d'.' -f1)
+          awk -v type="$TYPE" '
+            $0 ~ "Resource Type:" && $3 == type {flag=1}
+            /^
+
+\[/ {if(flag) {print; flag=0}}
+          ' "$GUARDRAILS" | while read RULELINE; do
+            RULEID=$(echo "$RULELINE" | sed -n 's/.*Rule ID: \\([^]]*\\)].*/\\1/p')
+            RULEDESC=$(grep -A1 "$RULELINE" "$GUARDRAILS" | grep "Rule:" | sed "s/Rule: //")
+            echo -e "${RES}\\t${RULEID}\\t${RULEDESC}" >> "$MATRIX"
+          done
+        done
+      """
+    }
+  }
+
   stage('AI analytics with Azure OpenAI') {
     withCredentials([
       string(credentialsId: 'AZURE_API_KEY',         variable: 'AZURE_API_KEY'),
@@ -50,101 +71,62 @@ def call(Map config) {
       string(credentialsId: 'AZURE_DEPLOYMENT_NAME', variable: 'DEPLOYMENT_NAME'),
       string(credentialsId: 'AZURE_API_VERSION',     variable: 'AZURE_API_VERSION')
     ]) {
-      def tfDir            = "${TMP_DIR}/terraform-code/${folderName}"
-      def sharedLibDir     = "${TMP_DIR}/jenkins-shared-ai-lib"
-      def tfPlanJsonPath   = "${tfDir}/tfplan.json"
-      def guardrailsPath   = "${sharedLibDir}/guardrails/guardrails_v1.txt"
-      def templatePath     = "${sharedLibDir}/reference_terra_analysis_html.html"
-      def outputHtmlPath   = "${tfDir}/output.html"
-      def payloadPath      = "${tfDir}/payload.json"
-      def responsePath     = "${outputHtmlPath}.raw"
+      def tfDir          = "${TMP_DIR}/terraform-code/${folderName}"
+      def sharedLibDir   = "${TMP_DIR}/jenkins-shared-ai-lib"
+      def tfPlanJsonPath = "${tfDir}/tfplan.json"
+      def guardrailsPath = "${sharedLibDir}/guardrails/guardrails_v1.txt"
+      def templatePath   = "${sharedLibDir}/reference_terra_analysis_html.html"
+      def matrixPath     = "${tfDir}/resource_rule_matrix.txt"
+      def outputHtmlPath = "${tfDir}/output.html"
+      def payloadPath    = "${tfDir}/payload.json"
+      def responsePath   = "${outputHtmlPath}.raw"
 
       sh """
-        echo "📄 Escaping input files for payload"
         PLAN_FILE_CONTENT=\$(jq -Rs . < "${tfPlanJsonPath}")
         GUARDRAILS_CONTENT=\$(jq -Rs . < "${guardrailsPath}")
         SAMPLE_HTML=\$(jq -Rs . < "${templatePath}")
+        MATRIX_CONTENT=\$(jq -Rs . < "${matrixPath}")
 
-        echo "🧠 Constructing deterministic prompt for Azure OpenAI"
         cat <<EOF > "${payloadPath}"
 {
   "messages": [
     {
       "role": "system",
       "content": "
-You are a Terraform compliance auditor. You will receive three input files:
-1) Terraform Plan in JSON format,
-2) Guardrails Checklist (versioned),
-3) Sample HTML Template.
+You are a Terraform compliance auditor. You will receive four input files:
+1) Terraform Plan JSON,
+2) Guardrails Checklist,
+3) Sample HTML Template,
+4) Pre-expanded Resource × Rule Matrix.
 
-Your task is to analyze the Terraform plan against the guardrails and return a single HTML output with the following sections:
-
-1️⃣ Change Summary Table
-- Title: 'What's Being Changed'
-- Columns: Resource Name, Resource Type, Action (Add/Delete/Update), Details
-- Ensure resource count matches Terraform plan
-
-2️⃣ Terraform Code Recommendations
-- Actionable suggestions to improve code quality
-
-3️⃣ Security and Compliance Recommendations
-- Highlight misconfigurations and generic recommendations
-
-4️⃣ Guardrail Compliance Summary
-- Title: 'Guardrail Compliance Summary'
-- Columns: Terraform Resource, Rule Id, Rule, Status (PASS or FAIL)
-- For each resource type present in the Terraform plan, evaluate all rules defined for that type in the Guardrails Checklist File.
-- Output one row per (Terraform Resource, Rule ID). Do not skip any rule for a resource type that exists in the plan.
-- Ensure the number of rows equals (#rules defined for that resource type × #resources of that type in the plan).
-- At the end, calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100.
-
-5️⃣ Overall Status
-- Status: PASS if coverage ≥ 90%, else FAIL
-
-6️⃣ HTML Formatting
-- Match visual structure of sample HTML using semantic tags and inline styles
+Your task is to evaluate each row in the matrix and output PASS or FAIL based on the plan.
+Do not skip any row. The number of rows in the Guardrail Compliance Summary must equal the number of rows in the matrix.
+At the end, calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100.
 "
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
     { "role": "user", "content": \${PLAN_FILE_CONTENT} },
     { "role": "user", "content": "Sample HTML File:\\n" },
     { "role": "user", "content": \${SAMPLE_HTML} },
-    { "role": "user", "content": "Guardrails Checklist File (Versioned):\\n" },
-    { "role": "user", "content": \${GUARDRAILS_CONTENT} }
+    { "role": "user", "content": "Guardrails Checklist File:\\n" },
+    { "role": "user", "content": \${GUARDRAILS_CONTENT} },
+    { "role": "user", "content": "Resource × Rule Matrix:\\n" },
+    { "role": "user", "content": \${MATRIX_CONTENT} }
   ],
   "max_tokens": 10000,
   "temperature": 0.0
 }
 EOF
 
-        echo "📡 Sending payload to Azure OpenAI"
         curl -s -X POST "\${AZURE_API_BASE}/openai/deployments/\${DEPLOYMENT_NAME}/chat/completions?api-version=\${AZURE_API_VERSION}" \\
              -H "Content-Type: application/json" \\
              -H "api-key: \${AZURE_API_KEY}" \\
              -d @"${payloadPath}" > "${responsePath}"
 
-        echo "📥 Parsing response and writing output"
         if jq -e '.choices[0].message.content' "${responsePath}" > /dev/null; then
           jq -r '.choices[0].message.content' "${responsePath}" > "${outputHtmlPath}"
         else
-          echo "<html><body><h2>⚠️ AI response was empty or malformed</h2><p>Please check payload formatting and Azure OpenAI status.</p></body></html>" > "${outputHtmlPath}"
-        fi
-
-        echo "🧾 Logging normalized plan and raw response for audit"
-        cp "${tfPlanJsonPath}" "${outputHtmlPath}.plan.json"
-        cp "${responsePath}"   "${outputHtmlPath}.response.json"
-
-        echo "🔍 Recalculating guardrail coverage from HTML output"
-        PASS_COUNT=\$(grep -oi 'class=\"pass\"' "${outputHtmlPath}" | wc -l)
-        FAIL_COUNT=\$(grep -oi 'class=\"fail\"' "${outputHtmlPath}" | wc -l)
-        TOTAL_COUNT=\$((PASS_COUNT + FAIL_COUNT))
-
-        if [ "\$TOTAL_COUNT" -gt 0 ]; then
-          COVERAGE=\$(awk "BEGIN {printf \\"%.0f\\", (\$PASS_COUNT/\$TOTAL_COUNT)*100}")
-          sed -i "s/Overall Guardrail Coverage: .*/Overall Guardrail Coverage: \$COVERAGE%/" "${outputHtmlPath}"
-          echo "✅ Corrected coverage: \$COVERAGE%"
-        else
-          echo "⚠️ No rule evaluations found in HTML. Coverage not updated."
+          echo "<html><body><h2>⚠️ AI response was empty or malformed</h2></body></html>" > "${outputHtmlPath}"
         fi
       """
     }
