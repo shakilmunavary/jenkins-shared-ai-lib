@@ -37,32 +37,30 @@ def call(Map config) {
     }
   }
 
-stage('Generate Resource × Rule Matrix') {
-  dir("${TMP_DIR}/terraform-code/${folderName}") {
-    sh '''
-      PLAN=tfplan.json
-      GUARDRAILS=$WORKSPACE/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
-      MATRIX=resource_rule_matrix.txt
-      rm -f "$MATRIX"
+  stage('Generate Resource × Rule Matrix') {
+    dir("${TMP_DIR}/terraform-code/${folderName}") {
+      sh '''
+        PLAN=tfplan.json
+        GUARDRAILS=$WORKSPACE/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
+        MATRIX=resource_rule_matrix.txt
+        rm -f "$MATRIX"
 
-      RESOURCES=$(jq -r ".resource_changes[].address" "$PLAN")
+        RESOURCES=$(jq -r ".resource_changes[].address" "$PLAN")
 
-      for RES in $RESOURCES; do
-        TYPE=$(echo "$RES" | cut -d"." -f1)
-        grep "^\
+        for RES in $RESOURCES; do
+          TYPE=$(echo "$RES" | cut -d"." -f1)
+          # Find all guardrail lines starting with '['
+          grep "^\
 
 \[" "$GUARDRAILS" | while read RULELINE; do
-          RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID: \\([^]]*\\)].*/\\1/p")
-          RULEDESC=$(grep -A1 "$RULELINE" "$GUARDRAILS" | grep "Rule:" | sed "s/Rule: //")
-          echo -e "${RES}\\t${RULEID}\\t${RULEDESC}" >> "$MATRIX"
+            RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID: \\([^]]*\\)].*/\\1/p")
+            RULEDESC=$(grep -A1 "$RULELINE" "$GUARDRAILS" | grep "Rule:" | sed "s/Rule: //")
+            echo -e "${RES}\\t${RULEID}\\t${RULEDESC}" >> "$MATRIX"
+          done
         done
-      done
-    '''
+      '''
+    }
   }
-}
-
-
-
 
   stage('AI analytics with Azure OpenAI') {
     withCredentials([
