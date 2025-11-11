@@ -154,4 +154,8 @@ EOF
   stage('Decision') {
     if (env.PIPELINE_DECISION == 'APPROVED') {
       echo "✅ Pipeline approved. Proceeding..."
+    } else {
+      echo "❌ Pipeline rejected. Halting..."
     }
+  }
+}
