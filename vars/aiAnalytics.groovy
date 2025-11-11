@@ -65,6 +65,7 @@ stage('Generate Resource × Rule Matrix') {
 }
 
 
+
   stage('AI analytics with Azure OpenAI') {
     withCredentials([
       string(credentialsId: 'AZURE_API_KEY',         variable: 'AZURE_API_KEY'),
