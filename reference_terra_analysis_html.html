@@ -102,20 +102,40 @@ def call(Map config) {
       "role": "system",
       "content": "
 You are a Terraform compliance auditor. You will receive four input files:
-1) Terraform Plan JSON,
-2) Guardrails Checklist,
+1) Terraform Plan in JSON format,
+2) Guardrails Checklist (versioned),
 3) Sample HTML Template (reference_terra_analysis_html.html),
 4) Pre-expanded Resource × Rule Matrix.
 
-Your task is to evaluate each row in the matrix and output PASS or FAIL based on the plan.
-Do not skip any row. The number of rows in the Guardrail Compliance Summary must equal the number of rows in the matrix.
-At the end, calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100.
+Your task is to analyze the Terraform plan against the guardrails and return a single HTML output with the following sections:
 
-⚠️ IMPORTANT: You must use the provided Sample HTML Template (reference_terra_analysis_html.html) as the structure for your output.
-- Copy the template structure exactly.
+1️⃣ Change Summary Table
+- Title: 'What's Being Changed'
+- Columns: Resource Name, Resource Type, Action (Add/Delete/Update), Details
+
+2️⃣ Terraform Code Recommendations
+- Actionable suggestions to improve code quality
+
+3️⃣ Security and Compliance Recommendations
+- Highlight misconfigurations and generic recommendations
+
+4️⃣ Guardrail Compliance Summary
+- Title: 'Guardrail Compliance Summary'
+- Columns: Terraform Resource, Rule Id, Rule, Status (PASS or FAIL)
+- For each row in the provided Resource × Rule Matrix, evaluate compliance against the Terraform Plan.
+- Output one row per (Terraform Resource, Rule ID). Do not skip any row.
+- Do not output 'N/A'. Every rule in the matrix must be marked PASS or FAIL.
+- At the end, calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100.
+
+5️⃣ Overall Status
+- Status: PASS if coverage ≥ 90%, else FAIL
+
+6️⃣ HTML Formatting
+- Copy the <html>, <head>, <body> structure from the provided Sample HTML Template.
 - Fill in the Guardrail Compliance Summary table rows inside the <table> tags.
-- Do not output Markdown or LaTeX.
-- Ensure the final output is valid HTML that can be rendered by Jenkins publishHTML.
+- Match visual structure of sample HTML using semantic tags and inline styles.
+- Do not output Markdown, LaTeX, or code fences.
+- Return only valid HTML that Jenkins publishHTML can render.
 "
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
@@ -138,7 +158,7 @@ EOF
              -d @"${payloadPath}" > "${responsePath}"
 
         if jq -e '.choices[0].message.content' "${responsePath}" > /dev/null; then
-          jq -r '.choices[0].message.content' "${responsePath}" > "${outputHtmlPath}"
+          jq -r '.choices[0].message.content' "${responsePath}" | sed '/^```/d' > "${outputHtmlPath}"
         else
           echo "<html><body><h2>⚠️ AI response was empty or malformed</h2></body></html>" > "${outputHtmlPath}"
         fi
@@ -160,18 +180,4 @@ EOF
   stage('Evaluate Guardrail Coverage') {
     def outputHtml = "${TMP_DIR}/terraform-code/${folderName}/output.html"
     def passCount  = sh(script: "grep -oi 'class=\"pass\"' '${outputHtml}' | wc -l",  returnStdout: true).trim().toInteger()
-    def failCount  = sh(script: "grep -oi 'class=\"fail\"' '${outputHtml}' | wc -l",  returnStdout: true).trim().toInteger()
-    def coverage   = (passCount + failCount) > 0 ? (passCount * 100 / (passCount + failCount)).toInteger() : 0
-
-    echo "🔍 Guardrail Coverage: ${coverage}%"
-    sh "sed -i 's/Overall Guardrail Coverage: .*/Overall Guardrail Coverage: ${coverage}%/' '${outputHtml}'"
-
-    env.PIPELINE_DECISION     = coverage >= 50 ? 'APPROVED' : 'REJECTED'
-    currentBuild.description  = "Auto-${env.PIPELINE_DECISION.toLowerCase()} (Coverage: ${coverage}%)"
-  }
-
-  stage('Decision') {
-    if (env.PIPELINE_DECISION == 'APPROVED') {
-      echo "✅ Pipeline approved. Proceeding..."
-    } else {
-      echo
+    def failCount  = sh(script: "grep -oi 'class=\"fail\"' '${outputHtml}' | wc -
