@@ -112,8 +112,9 @@ Do not skip any row. The number of rows in the Guardrail Compliance Summary must
 At the end, calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100.
 
 ⚠️ IMPORTANT: You must use the provided Sample HTML Template (reference_terra_analysis_html.html) as the structure for your output.
+- Copy the template structure exactly.
 - Fill in the Guardrail Compliance Summary table rows inside the <table> tags.
-- Do not output Markdown tables or LaTeX.
+- Do not output Markdown or LaTeX.
 - Ensure the final output is valid HTML that can be rendered by Jenkins publishHTML.
 "
     },
@@ -173,4 +174,4 @@ EOF
     if (env.PIPELINE_DECISION == 'APPROVED') {
       echo "✅ Pipeline approved. Proceeding..."
     } else {
-      echo "❌ Pipeline rejected. Halting..."
+      echo
