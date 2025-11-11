@@ -49,12 +49,9 @@ stage('Generate Resource × Rule Matrix') {
 
       for RES in $RESOURCES; do
         TYPE=$(echo "$RES" | cut -d"." -f1)
-        awk -v type="$TYPE" '
-          $0 ~ "Resource Type:" && $3 == type {flag=1}
-          /^
+        grep "^\
 
-\[/ {if(flag) {print; flag=0}}
-        ' "$GUARDRAILS" | while read RULELINE; do
+\[" "$GUARDRAILS" | while read RULELINE; do
           RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID: \\([^]]*\\)].*/\\1/p")
           RULEDESC=$(grep -A1 "$RULELINE" "$GUARDRAILS" | grep "Rule:" | sed "s/Rule: //")
           echo -e "${RES}\\t${RULEID}\\t${RULEDESC}" >> "$MATRIX"
@@ -63,6 +60,7 @@ stage('Generate Resource × Rule Matrix') {
     '''
   }
 }
+
 
 
 
