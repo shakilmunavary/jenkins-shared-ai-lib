@@ -5,7 +5,7 @@ def call(Map config) {
   def TMP_DIR = "${env.WORKSPACE}/tmp-${env.BUILD_ID}"
   sh "rm -rf '${TMP_DIR}' && mkdir -p '${TMP_DIR}'"
 
-  stage('Clone Repo') {
+  stage('Clone Repos') {
     dir(TMP_DIR) {
       sh """
         git clone '${terraformRepo}' terraform-code
@@ -80,8 +80,10 @@ def call(Map config) {
         string(credentialsId: 'AZURE_DEPLOYMENT_NAME', variable: 'DEPLOYMENT_NAME'),
         string(credentialsId: 'AZURE_API_VERSION',     variable: 'AZURE_API_VERSION')
       ]) {
+        def tfDir          = "${TMP_DIR}/terraform-code/${folderName}"
         def tfPlanJsonPath = "${tfDir}/tfplan.json"
         def guardrailsPath = "${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt"
+        def matrixPath     = "${tfDir}/resource_rule_matrix.txt"
         def outputHtmlPath = "${tfDir}/output.html"
         def payloadPath    = "${tfDir}/payload.json"
         def responsePath   = "${tfDir}/ai_results.raw"
