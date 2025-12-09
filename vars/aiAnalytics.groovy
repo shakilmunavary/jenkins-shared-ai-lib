@@ -44,13 +44,12 @@ stage('Generate Resource × Rule Matrix') {
   dir(tfDir) {
     sh """
       set -euo pipefail
-      PLAN=tfplan.json
       GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
 
-      # Use Groovy's matrixPath directly
+      # Write to Groovy's matrixPath directly
       : > "${matrixPath}"
 
-      RESOURCES=\$(jq -r ".resource_changes[].address" "$PLAN")
+      RESOURCES=\$(jq -r ".resource_changes[].address" tfplan.json)
       echo "Resources detected:"
       echo "\$RESOURCES" | sed "s/^/  - /"
 
@@ -74,6 +73,7 @@ stage('Generate Resource × Rule Matrix') {
     """
   }
 }
+
 
 
   stage('AI analytics with Azure OpenAI') {
