@@ -39,59 +39,34 @@ def call(Map config) {
 
   stage('Generate Resource × Rule Matrix') {
     dir("${TMP_DIR}/terraform-code/${folderName}") {
-      // Use single-quoted Groovy string to avoid Groovy interpolation of $ and special chars
       sh '''
         set -euo pipefail
-
         PLAN=tfplan.json
         GUARDRAILS=$WORKSPACE/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
         MATRIX=resource_rule_matrix.txt
         : > "$MATRIX"
 
-        # Collect resource addresses (type.name)
         RESOURCES=$(jq -r ".resource_changes[].address" "$PLAN")
-
-        # Optional: build a map of type -> count (for debugging/validation)
         echo "Resources detected:"
         echo "$RESOURCES" | sed "s/^/  - /"
 
         for RES in $RESOURCES; do
           TYPE=$(echo "$RES" | cut -d"." -f1)
-
-          # Find rule header lines for this resource type block, then the next rule line following it.
-          # This assumes guardrails file sections like:
-          #   Resource Type: aws_instance
-          #   [Rule ID: EC2-001] ...
-          #   Rule: Must use approved AMIs
-          #
-          # We select lines starting with "[" using ^[[] which matches literal '[' safely.
           awk -v type="$TYPE" '
             $0 ~ "^Resource Type:[[:space:]]*"type"$" { inType=1; next }
-            /^Resource Type:/ { inType=0 }                # leave the section if next type begins
-            inType && /^[[]/ { print; next }              # print rule header lines starting with [
+            /^Resource Type:/ { inType=0 }
+            inType && /^[[]/ { print; next }
           ' "$GUARDRAILS" | while read -r RULELINE; do
-            # Extract RULE ID from header line
             RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID:[[:space:]]*\\([^]]*\\)].*/\\1/p")
-
-            # Get the rule description: the first 'Rule:' line following the header
             RULEDESC=$(awk -v hdr="$RULELINE" '
               BEGIN {found=0}
               $0 == hdr {found=1; next}
               found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", $0); print; exit }
             ' "$GUARDRAILS")
-
-            # Fallback if no Rule: line found
-            if [ -z "$RULEDESC" ]; then
-              RULEDESC="Rule description not found"
-            fi
-
-            # Append matrix row: resource address, rule id, rule desc
+            if [ -z "$RULEDESC" ]; then RULEDESC="Rule description not found"; fi
             printf "%s\t%s\t%s\n" "$RES" "$RULEID" "$RULEDESC" >> "$MATRIX"
           done
         done
-
-        echo "Matrix generated at: $MATRIX"
-        wc -l "$MATRIX" || true
       '''
     }
   }
@@ -113,7 +88,6 @@ def call(Map config) {
       def payloadPath    = "${tfDir}/payload.json"
       def responsePath   = "${outputHtmlPath}.raw"
 
-      // Use triple double quotes here; escape ${...} with backslash to avoid Groovy interpolation.
       sh """
         set -euo pipefail
 
@@ -127,39 +101,7 @@ def call(Map config) {
   "messages": [
     {
       "role": "system",
-      "content":  "
-You are a Terraform compliance auditor. You will receive three input files:
-1) Terraform Plan in JSON format,
-2) Guardrails Checklist (versioned),
-3) Sample HTML Template.
-
-Your task is to analyze the Terraform plan against the guardrails and return a single HTML output with the following sections:
-
-1️⃣ Change Summary Table
-- Title: 'What's Being Changed'
-- Columns: Resource Name, Resource Type, Action (Add/Delete/Update), Details
-- Ensure resource count matches Terraform plan
-
-2️⃣ Terraform Code Recommendations
-- Actionable suggestions to improve code quality
-
-3️⃣ Security and Compliance Recommendations
-- Highlight misconfigurations and generic recommendations
-
-4️⃣ Guardrail Compliance Summary
-- Title: 'Guardrail Compliance Summary'
-- Columns: Terraform Resource, Rule Id, Rule, Status (PASS or FAIL)
-- For each resource type present in the Terraform plan, evaluate all rules defined for that type in the Guardrails Checklist File attached.
-- Output one row per (Terraform Resource, Rule ID). Do not skip any rule for a resource type that exists in the plan.
-- Ensure the number of rows equals (#rules defined for that resource type × #resources of that type in the plan).
-- At the end, calculate Overall Guardrail Coverage % = (PASS / total rules evaluated) × 100.
-
-5️⃣ Overall Status
-- Status: PASS if coverage ≥ 90%, else FAIL
-
-6️⃣ HTML Formatting
-- Match visual structure of sample HTML attached using semantic tags and inline styles
-"
+      "content": "You are a deterministic Terraform compliance auditor. Use the rubric provided to evaluate guardrails. Always output PASS/FAIL consistently."
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
     { "role": "user", "content": \${PLAN_FILE_CONTENT} },
@@ -171,7 +113,8 @@ Your task is to analyze the Terraform plan against the guardrails and return a s
     { "role": "user", "content": \${MATRIX_CONTENT} }
   ],
   "max_tokens": 10000,
-  "temperature": 0.0
+  "temperature": 0.0,
+  "seed": 42
 }
 EOF
 
@@ -209,7 +152,7 @@ EOF
     echo "🔍 Guardrail Coverage: ${coverage}%"
     sh "sed -i 's/Overall Guardrail Coverage: .*/Overall Guardrail Coverage: ${coverage}%/' '${outputHtml}'"
 
-    env.PIPELINE_DECISION     = coverage >= 50 ? 'APPROVED' : 'REJECTED'
+    env.PIPELINE_DECISION     = coverage >= 90 ? 'APPROVED' : 'REJECTED'
     currentBuild.description  = "Auto-${env.PIPELINE_DECISION.toLowerCase()} (Coverage: ${coverage}%)"
   }
 
