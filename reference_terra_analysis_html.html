@@ -98,7 +98,7 @@ def call(Map config) {
   "messages": [
     {
       "role": "system",
-      "content": "You are a Terraform compliance auditor. For each resource × rule in the matrix, output a tab-separated line: Resource\\tRuleID\\tRuleDescription\\tPASS/FAIL. Do not generate HTML or Markdown."
+      "content": "You are a Terraform compliance auditor. For each resource × rule in the matrix, output ONLY one tab-separated line: Resource\\tRuleID\\tRuleDescription\\tPASS or FAIL. Do not generate HTML, Markdown, headings, or explanations."
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
     { "role": "user", "content": \${PLAN_FILE_CONTENT} },
