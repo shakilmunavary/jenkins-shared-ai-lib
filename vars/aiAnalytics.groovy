@@ -126,8 +126,9 @@ EOF
       sh "cat ${tfDir}/ai_results.txt || true"
 
       def aiResults = readFile("${tfDir}/ai_results.txt").split("\\r?\\n")
-      def passCount = aiResults.count { it.endsWith("PASS") }
-      def failCount = aiResults.count { it.endsWith("FAIL") }
+def passCount = aiResults.count { it.trim().endsWith("PASS") }
+def failCount = aiResults.count { it.trim().endsWith("FAIL") }
+
       def total     = passCount + failCount
       def coverage  = total > 0 ? (passCount * 100 / total).toDouble().round(2) : 0.0
       def finalStatus = coverage >= 90 ? "PASS" : "FAIL"
