@@ -8,7 +8,7 @@ def call(Map config) {
 
   sh "rm -rf '${TMP_DIR}' && mkdir -p '${TMP_DIR}'"
 
-  stage('Clone Repos') {
+  stage('Clone Repo') {
     dir(TMP_DIR) {
       sh """
         git clone '${terraformRepo}' terraform-code
