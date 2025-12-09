@@ -46,7 +46,7 @@ def call(Map config) {
         set -euo pipefail
         PLAN=tfplan.json
         GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
-        MATRIX=${matrixPath}
+        MATRIX123=${matrixPath}
         : > "$MATRIX"
 
         RESOURCES=\$(jq -r ".resource_changes[].address" "$PLAN")
