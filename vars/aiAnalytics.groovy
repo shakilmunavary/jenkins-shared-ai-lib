@@ -5,7 +5,7 @@ def call(Map config) {
   def TMP_DIR = "${env.WORKSPACE}/tmp-${env.BUILD_ID}"
   sh "rm -rf '${TMP_DIR}' && mkdir -p '${TMP_DIR}'"
 
-  stage('Clone Repos') {
+  stage('Clone Repo') {
     dir(TMP_DIR) {
       sh """
         git clone '${terraformRepo}' terraform-code
@@ -38,12 +38,15 @@ def call(Map config) {
   }
 
   stage('Generate Resource × Rule Matrix') {
-    dir("${TMP_DIR}/terraform-code/${folderName}") {
+    def tfDir      = "${TMP_DIR}/terraform-code/${folderName}"
+    def matrixPath = "${tfDir}/resource_rule_matrix.txt"
+
+    dir(tfDir) {
       sh """
         set -euo pipefail
         PLAN=tfplan.json
         GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
-        MATRIX=resource_rule_matrix.txt
+        MATRIX=${matrixPath}
         : > "$MATRIX"
 
         RESOURCES=\$(jq -r ".resource_changes[].address" "$PLAN")
@@ -69,31 +72,28 @@ def call(Map config) {
         done
       """
     }
-  }
 
-  stage('AI analytics with Azure OpenAI') {
-    withCredentials([
-      string(credentialsId: 'AZURE_API_KEY',         variable: 'AZURE_API_KEY'),
-      string(credentialsId: 'AZURE_API_BASE',        variable: 'AZURE_API_BASE'),
-      string(credentialsId: 'AZURE_DEPLOYMENT_NAME', variable: 'DEPLOYMENT_NAME'),
-      string(credentialsId: 'AZURE_API_VERSION',     variable: 'AZURE_API_VERSION')
-    ]) {
-      def tfDir          = "${TMP_DIR}/terraform-code/${folderName}"
-      def tfPlanJsonPath = "${tfDir}/tfplan.json"
-      def guardrailsPath = "${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt"
-      def matrixPath     = "${tfDir}/resource_rule_matrix.txt"
-      def outputHtmlPath = "${tfDir}/output.html"
-      def payloadPath    = "${tfDir}/payload.json"
-      def responsePath   = "${tfDir}/ai_results.raw"
+    stage('AI analytics with Azure OpenAI') {
+      withCredentials([
+        string(credentialsId: 'AZURE_API_KEY',         variable: 'AZURE_API_KEY'),
+        string(credentialsId: 'AZURE_API_BASE',        variable: 'AZURE_API_BASE'),
+        string(credentialsId: 'AZURE_DEPLOYMENT_NAME', variable: 'DEPLOYMENT_NAME'),
+        string(credentialsId: 'AZURE_API_VERSION',     variable: 'AZURE_API_VERSION')
+      ]) {
+        def tfPlanJsonPath = "${tfDir}/tfplan.json"
+        def guardrailsPath = "${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt"
+        def outputHtmlPath = "${tfDir}/output.html"
+        def payloadPath    = "${tfDir}/payload.json"
+        def responsePath   = "${tfDir}/ai_results.raw"
 
-      sh """
-        set -euo pipefail
+        sh """
+          set -euo pipefail
 
-        PLAN_FILE_CONTENT=\$(jq -Rs . < "${tfPlanJsonPath}")
-        GUARDRAILS_CONTENT=\$(jq -Rs . < "${guardrailsPath}")
-        MATRIX_CONTENT=\$(jq -Rs . < "${matrixPath}")
+          PLAN_FILE_CONTENT=\$(jq -Rs . < "${tfPlanJsonPath}")
+          GUARDRAILS_CONTENT=\$(jq -Rs . < "${guardrailsPath}")
+          MATRIX_CONTENT=\$(jq -Rs . < "${matrixPath}")
 
-        cat <<EOF > "${payloadPath}"
+          cat <<EOF > "${payloadPath}"
 {
   "messages": [
     {
@@ -113,69 +113,70 @@ def call(Map config) {
 }
 EOF
 
-        curl -s -X POST "\${AZURE_API_BASE}/openai/deployments/\${DEPLOYMENT_NAME}/chat/completions?api-version=\${AZURE_API_VERSION}" \\
-             -H "Content-Type: application/json" \\
-             -H "api-key: \${AZURE_API_KEY}" \\
-             -d @"${payloadPath}" > "${responsePath}"
+          curl -s -X POST "\${AZURE_API_BASE}/openai/deployments/\${DEPLOYMENT_NAME}/chat/completions?api-version=\${AZURE_API_VERSION}" \\
+               -H "Content-Type: application/json" \\
+               -H "api-key: \${AZURE_API_KEY}" \\
+               -d @"${payloadPath}" > "${responsePath}"
 
-        jq -r '.choices[0].message.content' "${responsePath}" > "${tfDir}/ai_results.txt"
-      """
-      // Build HTML deterministically in Groovy
-      def aiResults = readFile("${tfDir}/ai_results.txt").split("\\r?\\n")
-      def passCount = aiResults.count { it.endsWith("PASS") }
-      def failCount = aiResults.count { it.endsWith("FAIL") }
-      def total     = passCount + failCount
-      def coverage  = total > 0 ? (passCount * 100 / total).toDouble().round(2) : 0.0
-      def finalStatus = coverage >= 90 ? "PASS" : "FAIL"
+          jq -r '.choices[0].message.content' "${responsePath}" > "${tfDir}/ai_results.txt"
+        """
+        // Build HTML deterministically in Groovy
+        def aiResults = readFile("${tfDir}/ai_results.txt").split("\\r?\\n")
+        def passCount = aiResults.count { it.endsWith("PASS") }
+        def failCount = aiResults.count { it.endsWith("FAIL") }
+        def total     = passCount + failCount
+        def coverage  = total > 0 ? (passCount * 100 / total).toDouble().round(2) : 0.0
+        def finalStatus = coverage >= 90 ? "PASS" : "FAIL"
 
-      def htmlReport = """
-      <html>
-      <head>
-        <title>Terraform Compliance Report</title>
-        <style>
-          body { font-family: Arial, sans-serif; }
-          table { border-collapse: collapse; width: 100%; }
-          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-          th { background-color: #f2f2f2; }
-          .pass { color: green; font-weight: bold; }
-          .fail { color: red; font-weight: bold; }
-        </style>
-      </head>
-      <body>
-        <h2>Guardrail Compliance Summary</h2>
-        <table>
-          <tr><th>Terraform Resource</th><th>Rule ID</th><th>Rule Description</th><th>Status</th></tr>
-      """
+        def htmlReport = """
+        <html>
+        <head>
+          <title>Terraform Compliance Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+            .pass { color: green; font-weight: bold; }
+            .fail { color: red; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <h2>Guardrail Compliance Summary</h2>
+          <table>
+            <tr><th>Terraform Resource</th><th>Rule ID</th><th>Rule Description</th><th>Status</th></tr>
+        """
 
-      aiResults.each { line ->
-        def parts = line.split("\\t")
-        if (parts.size() == 4) {
-          def resource = parts[0]
-          def ruleId   = parts[1]
-          def ruleDesc = parts[2]
-          def status   = parts[3]
-          def cssClass = status.toLowerCase()
-          htmlReport += "<tr><td>${resource}</td><td>${ruleId}</td><td>${ruleDesc}</td><td class='${cssClass}'>${status}</td></tr>\n"
+        aiResults.each { line ->
+          def parts = line.split("\\t")
+          if (parts.size() == 4) {
+            def resource = parts[0]
+            def ruleId   = parts[1]
+            def ruleDesc = parts[2]
+            def status   = parts[3]
+            def cssClass = status.toLowerCase()
+            htmlReport += "<tr><td>${resource}</td><td>${ruleId}</td><td>${ruleDesc}</td><td class='${cssClass}'>${status}</td></tr>\n"
+          }
         }
+
+        htmlReport += """
+          </table>
+          <h3>Overall Guardrail Coverage</h3>
+          <p>Total Rules Evaluated: ${total}</p>
+          <p>PASS: ${passCount}</p>
+          <p>FAIL: ${failCount}</p>
+          <p>Coverage: ${coverage}%</p>
+          <h3>Final Status: ${finalStatus}</h3>
+        </body>
+        </html>
+        """
+
+        writeFile file: outputHtmlPath, text: htmlReport
+        archiveArtifacts artifacts: outputHtmlPath, fingerprint: true
+
+        env.PIPELINE_DECISION    = finalStatus == "PASS" ? "APPROVED" : "REJECTED"
+        currentBuild.description = "Auto-${env.PIPELINE_DECISION.toLowerCase()} (Coverage: ${coverage}%)"
       }
-
-      htmlReport += """
-        </table>
-        <h3>Overall Guardrail Coverage</h3>
-        <p>Total Rules Evaluated: ${total}</p>
-        <p>PASS: ${passCount}</p>
-        <p>FAIL: ${failCount}</p>
-        <p>Coverage: ${coverage}%</p>
-        <h3>Final Status: ${finalStatus}</h3>
-      </body>
-      </html>
-      """
-
-      writeFile file: outputHtmlPath, text: htmlReport
-      archiveArtifacts artifacts: outputHtmlPath, fingerprint: true
-
-      env.PIPELINE_DECISION    = finalStatus == "PASS" ? "APPROVED" : "REJECTED"
-      currentBuild.description = "Auto-${env.PIPELINE_DECISION.toLowerCase()} (Coverage: ${coverage}%)"
     }
   }
 
@@ -195,6 +196,7 @@ EOF
       echo "✅ Pipeline approved. Proceeding..."
     } else {
       echo "❌ Pipeline rejected. Halting..."
+      error("Pipeline rejected due to insufficient compliance coverage")
     }
   }
 }
