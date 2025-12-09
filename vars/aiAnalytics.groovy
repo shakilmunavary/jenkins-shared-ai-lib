@@ -37,65 +37,50 @@ def call(Map config) {
     }
   }
 
-  stage('Generate Resource × Rule Matrix') {
-    dir("${TMP_DIR}/terraform-code/${folderName}") {
-      // Use single-quoted Groovy string to avoid Groovy interpolation of $ and special chars
-      sh '''
-        set -euo pipefail
+stage('Generate Resource × Rule Matrix') {
+  dir("${TMP_DIR}/terraform-code/${folderName}") {
+    // Use triple double quotes so Groovy interpolates ${TMP_DIR} before passing to shell
+    sh """
+      set -euo pipefail
 
-        PLAN=tfplan.json
-        GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
+      PLAN=tfplan.json
+      GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
+      MATRIX=resource_rule_matrix.txt
+      : > "$MATRIX"
 
-        MATRIX=resource_rule_matrix.txt
-        : > "$MATRIX"
+      RESOURCES=\$(jq -r ".resource_changes[].address" "$PLAN")
+      echo "Resources detected:"
+      echo "\$RESOURCES" | sed "s/^/  - /"
 
-        # Collect resource addresses (type.name)
-        RESOURCES=$(jq -r ".resource_changes[].address" "$PLAN")
+      for RES in \$RESOURCES; do
+        TYPE=\$(echo "\$RES" | cut -d"." -f1)
 
-        # Optional: build a map of type -> count (for debugging/validation)
-        echo "Resources detected:"
-        echo "$RESOURCES" | sed "s/^/  - /"
+        awk -v type="\$TYPE" '
+          \$0 ~ "^Resource Type:[[:space:]]*"type"\$" { inType=1; next }
+          /^Resource Type:/ { inType=0 }
+          inType && /^[[]/ { print; next }
+        ' "\$GUARDRAILS" | while read -r RULELINE; do
+          RULEID=\$(echo "\$RULELINE" | sed -n "s/.*Rule ID:[[:space:]]*\\([^]]*\\)].*/\\1/p")
+          RULEDESC=\$(awk -v hdr="\$RULELINE" '
+            BEGIN {found=0}
+            \$0 == hdr {found=1; next}
+            found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", \$0); print; exit }
+          ' "\$GUARDRAILS")
 
-        for RES in $RESOURCES; do
-          TYPE=$(echo "$RES" | cut -d"." -f1)
+          if [ -z "\$RULEDESC" ]; then
+            RULEDESC="Rule description not found"
+          fi
 
-          # Find rule header lines for this resource type block, then the next rule line following it.
-          # This assumes guardrails file sections like:
-          #   Resource Type: aws_instance
-          #   [Rule ID: EC2-001] ...
-          #   Rule: Must use approved AMIs
-          #
-          # We select lines starting with "[" using ^[[] which matches literal '[' safely.
-          awk -v type="$TYPE" '
-            $0 ~ "^Resource Type:[[:space:]]*"type"$" { inType=1; next }
-            /^Resource Type:/ { inType=0 }                # leave the section if next type begins
-            inType && /^[[]/ { print; next }              # print rule header lines starting with [
-          ' "$GUARDRAILS" | while read -r RULELINE; do
-            # Extract RULE ID from header line
-            RULEID=$(echo "$RULELINE" | sed -n "s/.*Rule ID:[[:space:]]*\\([^]]*\\)].*/\\1/p")
-
-            # Get the rule description: the first 'Rule:' line following the header
-            RULEDESC=$(awk -v hdr="$RULELINE" '
-              BEGIN {found=0}
-              $0 == hdr {found=1; next}
-              found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", $0); print; exit }
-            ' "$GUARDRAILS")
-
-            # Fallback if no Rule: line found
-            if [ -z "$RULEDESC" ]; then
-              RULEDESC="Rule description not found"
-            fi
-
-            # Append matrix row: resource address, rule id, rule desc
-            printf "%s\t%s\t%s\n" "$RES" "$RULEID" "$RULEDESC" >> "$MATRIX"
-          done
+          printf "%s\\t%s\\t%s\\n" "\$RES" "\$RULEID" "\$RULEDESC" >> "$MATRIX"
         done
+      done
 
-        echo "Matrix generated at: $MATRIX"
-        wc -l "$MATRIX" || true
-      '''
-    }
+      echo "Matrix generated at: \$MATRIX"
+      wc -l "\$MATRIX" || true
+    """
   }
+}
+
 
   stage('AI analytics with Azure OpenAI') {
     withCredentials([
