@@ -14,7 +14,7 @@ def call(Map config) {
     }
   }
 
-  stage('Terraform Init & Plan') {
+  stage('Terraform Plan Stage') {
     dir("${TMP_DIR}/terraform-code/${folderName}") {
       sh """
         terraform init
