@@ -98,7 +98,7 @@ def call(Map config) {
   "messages": [
     {
       "role": "system",
-      "content": "You are a Terraform compliance auditor. For each resource × rule in the matrix, output a tab-separated line: Resource\\tRuleID\\tRuleDescription\\tPASS/FAIL. Do not generate HTML."
+      "content": "You are a Terraform compliance auditor. For each resource × rule in the matrix, output a tab-separated line: Resource\\tRuleID\\tRuleDescription\\tPASS/FAIL. Do not generate HTML or Markdown."
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
     { "role": "user", "content": \${PLAN_FILE_CONTENT} },
@@ -122,8 +122,8 @@ EOF
       """
       // Build HTML deterministically in Groovy
       def aiResults = readFile("${tfDir}/ai_results.txt").split("\\r?\\n")
-      def passCount = aiResults.count { it.contains("PASS") }
-      def failCount = aiResults.count { it.contains("FAIL") }
+      def passCount = aiResults.count { it.endsWith("PASS") }
+      def failCount = aiResults.count { it.endsWith("FAIL") }
       def total     = passCount + failCount
       def coverage  = total > 0 ? (passCount * 100 / total).toDouble().round(2) : 0.0
       def finalStatus = coverage >= 90 ? "PASS" : "FAIL"
@@ -142,13 +142,7 @@ EOF
         </style>
       </head>
       <body>
-        <h2>Guardrail Compliance Evaluation</h2>
-        <p><b>Evaluation Rubric:</b></p>
-        <ul>
-          <li><b>PASS</b>: Rule satisfied</li>
-          <li><b>FAIL</b>: Rule violated</li>
-        </ul>
-        <h3>Guardrail Compliance Summary</h3>
+        <h2>Guardrail Compliance Summary</h2>
         <table>
           <tr><th>Terraform Resource</th><th>Rule ID</th><th>Rule Description</th><th>Status</th></tr>
       """
