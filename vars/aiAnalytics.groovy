@@ -47,7 +47,7 @@ def call(Map config) {
         PLAN=tfplan.json
         GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
         MATRIX123=${matrixPath}
-        : > "$MATRIX"
+        : > "$MATRIX123"
 
         RESOURCES=\$(jq -r ".resource_changes[].address" "$PLAN")
         echo "Resources detected:"
@@ -67,7 +67,7 @@ def call(Map config) {
               found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", \$0); print; exit }
             ' "\$GUARDRAILS")
             if [ -z "\$RULEDESC" ]; then RULEDESC="Rule description not found"; fi
-            printf "%s\\t%s\\t%s\\n" "\$RES" "\$RULEID" "\$RULEDESC" >> "$MATRIX"
+            printf "%s\\t%s\\t%s\\n" "\$RES" "\$RULEID" "\$RULEDESC" >> "$MATRIX123"
           done
         done
       """
