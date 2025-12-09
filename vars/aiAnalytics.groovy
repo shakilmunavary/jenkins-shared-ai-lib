@@ -2,7 +2,10 @@ def call(Map config) {
   def terraformRepo = config.terraformRepo
   def folderName    = config.folderName
 
-  def TMP_DIR = "${env.WORKSPACE}/tmp-${env.BUILD_ID}"
+  def TMP_DIR    = "${env.WORKSPACE}/tmp-${env.BUILD_ID}"
+  def tfDir      = "${TMP_DIR}/terraform-code/${folderName}"
+  def matrixPath = "${tfDir}/resource_rule_matrix.txt"
+
   sh "rm -rf '${TMP_DIR}' && mkdir -p '${TMP_DIR}'"
 
   stage('Clone Repos') {
@@ -15,7 +18,7 @@ def call(Map config) {
   }
 
   stage('Terraform Init & Plan') {
-    dir("${TMP_DIR}/terraform-code/${folderName}") {
+    dir(tfDir) {
       sh """
         terraform init
         terraform plan -out=tfplan.binary
@@ -38,12 +41,12 @@ def call(Map config) {
   }
 
   stage('Generate Resource × Rule Matrix') {
-    dir("${TMP_DIR}/terraform-code/${folderName}") {
+    dir(tfDir) {
       sh """
         set -euo pipefail
         PLAN=tfplan.json
         GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
-        MATRIX=resource_rule_matrix.txt
+        MATRIX=${matrixPath}
         : > "$MATRIX"
 
         RESOURCES=\$(jq -r ".resource_changes[].address" "$PLAN")
@@ -64,7 +67,7 @@ def call(Map config) {
               found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", \$0); print; exit }
             ' "\$GUARDRAILS")
             if [ -z "\$RULEDESC" ]; then RULEDESC="Rule description not found"; fi
-            printf "%s\\t%s\\t%s\\n" "\$RES" "\$RULEID" "\$RULEDESC" >> "\$MATRIX"
+            printf "%s\\t%s\\t%s\\n" "\$RES" "\$RULEID" "\$RULEDESC" >> "$MATRIX"
           done
         done
       """
@@ -78,10 +81,8 @@ def call(Map config) {
       string(credentialsId: 'AZURE_DEPLOYMENT_NAME', variable: 'DEPLOYMENT_NAME'),
       string(credentialsId: 'AZURE_API_VERSION',     variable: 'AZURE_API_VERSION')
     ]) {
-      def tfDir          = "${TMP_DIR}/terraform-code/${folderName}"
       def tfPlanJsonPath = "${tfDir}/tfplan.json"
       def guardrailsPath = "${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt"
-      def matrixPath     = "${tfDir}/resource_rule_matrix.txt"
       def outputHtmlPath = "${tfDir}/output.html"
       def payloadPath    = "${tfDir}/payload.json"
       def responsePath   = "${tfDir}/ai_results.raw"
@@ -120,8 +121,9 @@ EOF
 
         jq -r '.choices[0].message.content' "${responsePath}" > "${tfDir}/ai_results.txt"
       """
+
       // Build HTML deterministically in Groovy
-      def aiResults = readFile("${tfDir}/ai_results.txt").split("\\r?\\n")
+      def aiResults = readFile(matrixPath).split("\\r?\\n")
       def passCount = aiResults.count { it.endsWith("PASS") }
       def failCount = aiResults.count { it.endsWith("FAIL") }
       def total     = passCount + failCount
