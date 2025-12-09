@@ -120,7 +120,6 @@ EOF
 
         jq -r '.choices[0].message.content' "${responsePath}" > "${tfDir}/ai_results.txt"
       """
-
       // Build HTML deterministically in Groovy
       def aiResults = readFile("${tfDir}/ai_results.txt").split("\\r?\\n")
       def passCount = aiResults.count { it.contains("PASS") }
@@ -188,4 +187,20 @@ EOF
 
   stage('Publish Report') {
     publishHTML([
-      reportName: 'AI Analysis
+      reportName: 'AI Analysis',
+      reportDir: "${TMP_DIR}/terraform-code/${folderName}",
+      reportFiles: 'output.html',
+      keepAll: true,
+      allowMissing: false,
+      alwaysLinkToLastBuild: true
+    ])
+  }
+
+  stage('Decision') {
+    if (env.PIPELINE_DECISION == 'APPROVED') {
+      echo "✅ Pipeline approved. Proceeding..."
+    } else {
+      echo "❌ Pipeline rejected. Halting..."
+    }
+  }
+}
