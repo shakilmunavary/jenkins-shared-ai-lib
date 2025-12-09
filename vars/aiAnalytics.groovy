@@ -40,42 +40,40 @@ def call(Map config) {
     }
   }
 
-stage('Generate Resource × Rule Matrix') {
-  dir(tfDir) {
-    sh """
-      set -euo pipefail
-      GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
+  stage('Generate Resource × Rule Matrix') {
+    dir(tfDir) {
+      sh """
+        set -euo pipefail
+        GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
 
-      # Write to Groovy's matrixPath directly
-      : > "${matrixPath}"
+        : > "${matrixPath}"
 
-      RESOURCES=\$(jq -r ".resource_changes[].address" tfplan.json)
-      echo "Resources detected:"
-      echo "\$RESOURCES" | sed "s/^/  - /"
+        RESOURCES=\$(jq -r ".resource_changes[].address" tfplan.json)
+        echo "Resources detected:"
+        echo "\$RESOURCES" | sed "s/^/  - /"
 
-      for RES in \$RESOURCES; do
-        TYPE=\$(echo "\$RES" | cut -d"." -f1)
-        awk -v type="\$TYPE" '
-          \$0 ~ "^Resource Type:[[:space:]]*"type"\$" { inType=1; next }
-          /^Resource Type:/ { inType=0 }
-          inType && /^[[]/ { print; next }
-        ' "\$GUARDRAILS" | while read -r RULELINE; do
-          RULEID=\$(echo "\$RULELINE" | sed -n "s/.*Rule ID:[[:space:]]*\\([^]]*\\)].*/\\1/p")
-          RULEDESC=\$(awk -v hdr="\$RULELINE" '
-            BEGIN {found=0}
-            \$0 == hdr {found=1; next}
-            found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", \$0); print; exit }
-          ' "\$GUARDRAILS")
-          if [ -z "\$RULEDESC" ]; then RULEDESC="Rule description not found"; fi
-          printf "%s\\t%s\\t%s\\n" "\$RES" "\$RULEID" "\$RULEDESC" >> "${matrixPath}"
+        for RES in \$RESOURCES; do
+          TYPE=\$(echo "\$RES" | cut -d"." -f1)
+          awk -v type="\$TYPE" '
+            \$0 ~ "^Resource Type:[[:space:]]*"type"\$" { inType=1; next }
+            /^Resource Type:/ { inType=0 }
+            inType && /^[[]/ { print; next }
+          ' "\$GUARDRAILS" | while read -r RULELINE; do
+            RULEID=\$(echo "\$RULELINE" | sed -n "s/.*Rule ID:[[:space:]]*\\([^]]*\\)].*/\\1/p")
+            RULEDESC=\$(awk -v hdr="\$RULELINE" '
+              BEGIN {found=0}
+              \$0 == hdr {found=1; next}
+              found && /^Rule:/ { sub(/^Rule:[[:space:]]*/, "", \$0); print; exit }
+            ' "\$GUARDRAILS")
+            if [ -z "\$RULEDESC" ]; then RULEDESC="Rule description not found"; fi
+            printf "%s\\t%s\\t%s\\n" "\$RES" "\$RULEID" "\$RULEDESC" >> "${matrixPath}"
+          done
         done
-      done
-    """
+      """
+      // Debug: show matrix content
+      sh "cat ${matrixPath} || true"
+    }
   }
-}
-
-
-
   stage('AI analytics with Azure OpenAI') {
     withCredentials([
       string(credentialsId: 'AZURE_API_KEY',         variable: 'AZURE_API_KEY'),
@@ -101,7 +99,7 @@ stage('Generate Resource × Rule Matrix') {
   "messages": [
     {
       "role": "system",
-      "content": "You are a Terraform compliance auditor. For each resource × rule in the matrix, output ONLY one tab-separated line: Resource\\tRuleID\\tRuleDescription\\tPASS or FAIL. Do not generate HTML, Markdown, headings, or explanations."
+      "content": "You are a Terraform compliance auditor. For each resource × rule in the matrix, output ONLY one tab-separated line: Resource\\tRuleID\\tRuleDescription\\tPASS or FAIL."
     },
     { "role": "user", "content": "Terraform Plan File:\\n" },
     { "role": "user", "content": \${PLAN_FILE_CONTENT} },
@@ -124,8 +122,10 @@ EOF
         jq -r '.choices[0].message.content' "${responsePath}" > "${tfDir}/ai_results.txt"
       """
 
-      // Build HTML deterministically in Groovy
-      def aiResults = readFile(matrixPath).split("\\r?\\n")
+      // Debug: show AI results
+      sh "cat ${tfDir}/ai_results.txt || true"
+
+      def aiResults = readFile("${tfDir}/ai_results.txt").split("\\r?\\n")
       def passCount = aiResults.count { it.endsWith("PASS") }
       def failCount = aiResults.count { it.endsWith("FAIL") }
       def total     = passCount + failCount
@@ -176,7 +176,8 @@ EOF
       """
 
       writeFile file: outputHtmlPath, text: htmlReport
-      archiveArtifacts artifacts: outputHtmlPath, fingerprint: true
+      // FIX: use relative path for artifact archiving
+      archiveArtifacts artifacts: "tmp-${env.BUILD_ID}/terraform-code/${folderName}/output.html", fingerprint: true
 
       env.PIPELINE_DECISION    = finalStatus == "PASS" ? "APPROVED" : "REJECTED"
       currentBuild.description = "Auto-${env.PIPELINE_DECISION.toLowerCase()} (Coverage: ${coverage}%)"
