@@ -47,7 +47,7 @@ def call(Map config) {
         PLAN=tfplan.json
         GUARDRAILS=${TMP_DIR}/jenkins-shared-ai-lib/guardrails/guardrails_v1.txt
         MATRIX=${matrixPath}
-        : > "$MATRIX123"
+        : > "$MATRIX"
 
         RESOURCES=\$(jq -r ".resource_changes[].address" "$PLAN")
         echo "Resources detected:"
